@@ -1,0 +1,148 @@
+﻿{
+  "$schema": "./node_modules/@angular/cli/lib/config/schema.json",
+  "version": 1,
+  "newProjectRoot": "projects",
+  "projects": {
+    "public-site": {
+      "projectType": "application",
+      "root": "projects/public-site",
+      "sourceRoot": "projects/public-site/src",
+      "prefix": "pbms-pub",
+      "architect": {
+        "build": {
+          "builder": "@angular-devkit/build-angular:application",
+          "options": {
+            "outputPath": "dist/public-site",
+            "index": "projects/public-site/src/index.html",
+            "browser": "projects/public-site/src/main.ts",
+            "polyfills": ["zone.js"],
+            "tsConfig": "projects/public-site/tsconfig.app.json",
+            "styles": ["projects/public-site/src/styles.css"],
+            "scripts": []
+          },
+          "configurations": {
+            "production": {
+              "outputHashing": "all"
+            },
+            "development": {
+              "optimization": false,
+              "extractLicenses": false,
+              "sourceMap": true
+            }
+          },
+          "defaultConfiguration": "production"
+        },
+        "serve": {
+          "builder": "@angular-devkit/build-angular:dev-server",
+          "options": {
+            "port": 4200
+          },
+          "configurations": {
+            "production": {
+              "buildTarget": "public-site:build:production"
+            },
+            "development": {
+              "buildTarget": "public-site:build:development"
+            }
+          },
+          "defaultConfiguration": "development"
+        }
+      }
+    },
+    "super-admin": {
+      "projectType": "application",
+      "root": "projects/super-admin",
+      "sourceRoot": "projects/super-admin/src",
+      "prefix": "pbms-admin",
+      "architect": {
+        "build": {
+          "builder": "@angular-devkit/build-angular:application",
+          "options": {
+            "outputPath": "dist/super-admin",
+            "index": "projects/super-admin/src/index.html",
+            "browser": "projects/super-admin/src/main.ts",
+            "polyfills": ["zone.js"],
+            "tsConfig": "projects/super-admin/tsconfig.app.json",
+            "styles": ["projects/super-admin/src/styles.css"],
+            "scripts": []
+          },
+          "configurations": {
+            "production": {
+              "outputHashing": "all"
+            },
+            "development": {
+              "optimization": false,
+              "extractLicenses": false,
+              "sourceMap": true
+            }
+          },
+          "defaultConfiguration": "production"
+        },
+        "serve": {
+          "builder": "@angular-devkit/build-angular:dev-server",
+          "options": {
+            "port": 4201
+          },
+          "configurations": {
+            "production": {
+              "buildTarget": "super-admin:build:production"
+            },
+            "development": {
+              "buildTarget": "super-admin:build:development"
+            }
+          },
+          "defaultConfiguration": "development"
+        }
+      }
+    },
+    "tenant-workspace": {
+      "projectType": "application",
+      "root": "projects/tenant-workspace",
+      "sourceRoot": "projects/tenant-workspace/src",
+      "prefix": "pbms-tenant",
+      "architect": {
+        "build": {
+          "builder": "@angular-devkit/build-angular:application",
+          "options": {
+            "outputPath": "dist/tenant-workspace",
+            "index": "projects/tenant-workspace/src/index.html",
+            "browser": "projects/tenant-workspace/src/main.ts",
+            "polyfills": ["zone.js"],
+            "tsConfig": "projects/tenant-workspace/tsconfig.app.json",
+            "styles": ["projects/tenant-workspace/src/styles.css"],
+            "scripts": []
+          },
+          "configurations": {
+            "production": {
+              "outputHashing": "all"
+            },
+            "development": {
+              "optimization": false,
+              "extractLicenses": false,
+              "sourceMap": true
+            }
+          },
+          "defaultConfiguration": "production"
+        },
+        "serve": {
+          "builder": "@angular-devkit/build-angular:dev-server",
+          "options": {
+            "port": 4202
+          },
+          "configurations": {
+            "production": {
+              "buildTarget": "tenant-workspace:build:production"
+            },
+            "development": {
+              "buildTarget": "tenant-workspace:build:development"
+            }
+          },
+          "defaultConfiguration": "development"
+        }
+      }
+    }
+  },
+  "cli": {
+    "analytics": false
+  }
+}

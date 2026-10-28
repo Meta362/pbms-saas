@@ -1,0 +1,224 @@
+<div class="min-h-screen flex flex-col bg-slate-950 text-slate-100">
+  <!-- Header -->
+  <header class="bg-slate-900 border-b border-slate-800 px-6 py-4 flex items-center justify-between">
+    <div class="flex items-center space-x-3">
+      <div class="w-9 h-9 rounded-lg bg-rose-600 flex items-center justify-center font-bold text-white shadow">
+        SA
+      </div>
+      <div>
+        <h1 class="font-bold text-base text-white">PBMS Platform Super Admin</h1>
+        <p class="text-xs text-slate-400">
+          {{ i18n.t('មជ្ឈមណ្ឌលគ្រប់គ្រងវេទិកា និងសុវត្ថិភាព (Frontend A - Port 4201)', 'Platform Governance & Security Console (Frontend A - Port 4201)') }}
+        </p>
+      </div>
+    </div>
+
+    <div class="flex items-center space-x-3">
+      <button
+        type="button"
+        (click)="i18n.toggleLanguage()"
+        class="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-xs font-medium text-slate-200 hover:bg-slate-700"
+      >
+        {{ i18n.lang() === 'km' ? '🌐 English' : '🌐 ភាសាខ្មែរ' }}
+      </button>
+      <span *ngIf="user()" class="text-xs text-slate-300 hidden sm:inline">
+        {{ user()?.full_name }} ({{ user()?.email }})
+      </span>
+      <button
+        *ngIf="user()"
+        type="button"
+        (click)="logout()"
+        class="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-xs font-semibold text-white"
+      >
+        {{ i18n.t('ចាកចេញ (Revoke Session)', 'Logout (Revoke Session)') }}
+      </button>
+    </div>
+  </header>
+
+  <!-- Login Screen if not authenticated -->
+  <main *ngIf="!user()" class="flex-1 flex items-center justify-center p-6">
+    <div class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-xl">
+      <h2 class="text-xl font-bold text-white mb-2">
+        {{ i18n.t('ចូលប្រើប្រាស់ Super Admin Portal', 'Super Admin Portal Login') }}
+      </h2>
+      <p class="text-xs text-slate-400 mb-6">
+        {{ i18n.t('គណនីគំរូ៖ admin@pbms.local / ពាក្យសម្ងាត់៖ Admin@PBMS2026', 'Demo Account: admin@pbms.local / Password: Admin@PBMS2026') }}
+      </p>
+
+      <div *ngIf="errorMsg()" class="mb-4 p-3 rounded-lg bg-rose-950/80 border border-rose-700 text-rose-200 text-xs">
+        {{ errorMsg() }}
+      </div>
+
+      <form (ngSubmit)="login()" class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Email</label>
+          <input
+            type="email"
+            name="email"
+            [(ngModel)]="email"
+            required
+            class="w-full rounded-lg bg-slate-950 border border-slate-700 px-3.5 py-2 text-sm text-white focus:border-rose-500 focus:outline-none"
+          />
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Password (Argon2id)</label>
+          <input
+            type="password"
+            name="password"
+            [(ngModel)]="password"
+            required
+            class="w-full rounded-lg bg-slate-950 border border-slate-700 px-3.5 py-2 text-sm text-white focus:border-rose-500 focus:outline-none"
+          />
+        </div>
+        <button
+          type="submit"
+          class="w-full py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-semibold text-sm transition"
+        >
+          {{ i18n.t('ចូលគ្រប់គ្រងប្រព័ន្ធ (Authenticate)', 'Sign In as Super Admin') }}
+        </button>
+      </form>
+    </div>
+  </main>
+
+  <!-- Super Admin Dashboard -->
+  <main *ngIf="user()" class="max-w-7xl mx-auto w-full px-6 py-8 flex-1 space-y-8">
+    <div *ngIf="actionBanner()" class="p-4 rounded-xl bg-emerald-950/90 border border-emerald-700 text-emerald-200 text-sm flex items-center justify-between">
+      <span>{{ actionBanner() }}</span>
+      <button type="button" (click)="actionBanner.set('')" class="text-xs underline">Close</button>
+    </div>
+
+    <!-- KPI Cards -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4" *ngIf="overview() as ov">
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <div class="text-xs text-slate-400">{{ i18n.t('ហាងបោះពុម្ពសរុប', 'Total Tenants') }}</div>
+        <div class="text-2xl font-bold text-white mt-1">{{ ov.metrics.total_tenants }}</div>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <div class="text-xs text-slate-400">{{ i18n.t('ហាងកំពុងដំណើរការ (Active)', 'Active Tenants') }}</div>
+        <div class="text-2xl font-bold text-emerald-400 mt-1">{{ ov.metrics.active_tenants }}</div>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <div class="text-xs text-slate-400">{{ i18n.t('រង់ចាំការអនុម័ត (Pending)', 'Pending Review') }}</div>
+        <div class="text-2xl font-bold text-amber-400 mt-1">{{ ov.metrics.pending_tenants }}</div>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <div class="text-xs text-slate-400">{{ i18n.t('ការបង់ប្រាក់រង់ចាំពិនិត្យ', 'Pending Payments') }}</div>
+        <div class="text-2xl font-bold text-rose-400 mt-1">{{ ov.metrics.pending_payments }}</div>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <div class="text-xs text-slate-400">{{ i18n.t('ចំណូលវេទិកាសរុប (USD)', 'Platform Revenue (USD)') }}</div>
+        <div class="text-2xl font-bold text-indigo-400 mt-1">USD {{ ov.metrics.total_revenue_usd }}</div>
+      </div>
+    </div>
+
+    <!-- Tenants & Subscription Payment Reconciliation Table -->
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+      <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+        <div>
+          <h2 class="font-bold text-base text-white">
+            {{ i18n.t('ការគ្រប់គ្រងហាងបោះពុម្ព និងអនុម័តការបង់ប្រាក់ជួលប្រព័ន្ធ (Tenants & Payment Reconciliation)', 'Registered Printing Businesses & Subscription Payment Reconciliation') }}
+          </h2>
+          <p class="text-xs text-slate-400 mt-0.5">
+            {{ i18n.t('ចុច Approve Payment ដើម្បីបើកឱ្យហាងបោះពុម្ពចូលប្រើប្រាស់ Frontend B (Tenant Workspace) បានភ្លាមៗ។', 'Approving a pending payment atomically activates both the Tenant and its Subscription.') }}
+          </p>
+        </div>
+        <button
+          type="button"
+          (click)="loadAll()"
+          class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200"
+        >
+          ↻ {{ i18n.t('ទាញទិន្នន័យថ្មី', 'Refresh') }}
+        </button>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-sm">
+          <thead class="bg-slate-950/60 text-xs uppercase text-slate-400 border-b border-slate-800">
+            <tr>
+              <th class="py-3 px-4">Tenant / Business</th>
+              <th class="py-3 px-4">Status</th>
+              <th class="py-3 px-4">Subscription Plan</th>
+              <th class="py-3 px-4">Latest Payment</th>
+              <th class="py-3 px-4 text-right">Governance Actions</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-800">
+            <tr *ngFor="let t of tenants()" class="hover:bg-slate-800/40">
+              <td class="py-3.5 px-4">
+                <div class="font-semibold text-white">{{ t.name }}</div>
+                <div class="text-xs text-slate-400 font-mono">{{ t.slug }} • {{ t.email }}</div>
+              </td>
+              <td class="py-3.5 px-4">
+                <span
+                  [class]="t.status === 'ACTIVE' ? 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-950 text-emerald-300 border border-emerald-700' : 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-950 text-amber-300 border border-amber-700'"
+                >
+                  {{ t.status }}
+                </span>
+              </td>
+              <td class="py-3.5 px-4">
+                <div *ngIf="t.subscription as sub">
+                  <span class="font-medium text-slate-200">{{ sub.plan_name_en }}</span>
+                  <span class="text-xs text-slate-400 block">{{ sub.billing_cycle }} • {{ sub.status }}</span>
+                </div>
+              </td>
+              <td class="py-3.5 px-4">
+                <div *ngIf="t.latest_payment as pay">
+                  <span class="font-semibold text-white">USD {{ pay.amount_usd }}</span>
+                  <span class="ml-2 text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-300">{{ pay.status }}</span>
+                  <div class="text-xs text-slate-400 font-mono mt-0.5">{{ pay.provider_reference || pay.provider }}</div>
+                </div>
+              </td>
+              <td class="py-3.5 px-4 text-right space-x-2">
+                <button
+                  *ngIf="t.latest_payment && t.latest_payment.status === 'PENDING'"
+                  type="button"
+                  (click)="reconcilePayment(t.latest_payment.id, 'APPROVE')"
+                  class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold"
+                >
+                  ✓ {{ i18n.t('អនុម័តការបង់ប្រាក់ (Approve)', 'Approve Payment') }}
+                </button>
+                <button
+                  *ngIf="t.status === 'ACTIVE'"
+                  type="button"
+                  (click)="toggleTenantStatus(t.id, 'SUSPEND')"
+                  class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-rose-900 text-rose-300 border border-slate-700 text-xs font-medium"
+                >
+                  {{ i18n.t('ផ្អាកហាង (Suspend)', 'Suspend') }}
+                </button>
+                <button
+                  *ngIf="t.status === 'SUSPENDED'"
+                  type="button"
+                  (click)="toggleTenantStatus(t.id, 'ACTIVATE')"
+                  class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium"
+                >
+                  {{ i18n.t('បើកដំណើរការវិញ (Activate)', 'Reactivate') }}
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Immutable Security & Operational Audit Trail -->
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6" *ngIf="overview() as ov">
+      <h3 class="font-bold text-base text-white mb-4">
+        {{ i18n.t('កំណត់ត្រាសុវត្ថិភាព និងប្រតិបត្តិការចុងក្រោយ (Immutable Audit Trail)', 'Recent Platform & Security Audit Events') }}
+      </h3>
+      <div class="space-y-2">
+        <div
+          *ngFor="let ev of ov.recent_audit_events"
+          class="p-3 rounded-lg bg-slate-950 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between text-xs"
+        >
+          <div>
+            <span class="font-mono font-semibold text-indigo-400">{{ ev.event_type }}</span>
+            <span class="text-slate-400 ml-2">Target: {{ ev.target_model }} ({{ ev.target_id | slice:0:8 }}...)</span>
+          </div>
+          <div class="text-slate-500 font-mono mt-1 sm:mt-0">
+            {{ ev.created_at | date:'medium' }}
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>

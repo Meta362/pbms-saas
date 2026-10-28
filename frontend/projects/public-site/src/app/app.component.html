@@ -1,0 +1,298 @@
+<div class="min-h-screen flex flex-col bg-slate-50">
+  <!-- Top Navigation Bar -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center text-white font-bold text-lg shadow-sm">
+          P
+        </div>
+        <div>
+          <span class="font-bold text-lg text-slate-900">PBMS Cloud SaaS</span>
+          <span class="hidden sm:inline-block ml-2 text-xs px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-medium">
+            {{ i18n.t('វេទិកាសាធារណៈ (Frontend C)', 'Public SaaS Website (Frontend C)') }}
+          </span>
+        </div>
+      </div>
+
+      <div class="flex items-center space-x-3">
+        <button
+          type="button"
+          (click)="i18n.toggleLanguage()"
+          class="px-3 py-1.5 rounded-lg border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-100"
+        >
+          {{ i18n.lang() === 'km' ? '🌐 English' : '🌐 ភាសាខ្មែរ' }}
+        </button>
+        <a
+          href="http://localhost:4202"
+          target="_blank"
+          class="px-3.5 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium hover:bg-slate-800"
+        >
+          {{ i18n.t('ចូលប្រើប្រាស់ហាងបោះពុម្ព (4202)', 'Tenant Login (4202)') }}
+        </a>
+        <a
+          href="http://localhost:4201"
+          target="_blank"
+          class="hidden md:inline-block px-3 py-2 rounded-lg border border-slate-300 text-slate-700 text-xs font-medium hover:bg-slate-100"
+        >
+          Super Admin (4201)
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="bg-gradient-to-b from-indigo-950 via-slate-900 to-slate-900 text-white py-16 px-4">
+    <div class="max-w-5xl mx-auto text-center">
+      <div class="inline-flex items-center px-3.5 py-1 rounded-full bg-indigo-500/20 border border-indigo-400/30 text-indigo-200 text-xs font-medium mb-6">
+        {{ i18n.t('ប្រព័ន្ធគ្រប់គ្រងរោងពុម្ពស្តង់ដារសុវត្ថិភាពខ្ពស់ (Argon2id + JWT Rotation + PostgreSQL Ledger)', 'Enterprise Printing SaaS — Argon2id, JWT Rotation & Immutable Stock Ledger') }}
+      </div>
+      <h1 class="text-3xl sm:text-5xl font-bold tracking-tight leading-tight mb-6">
+        {{ i18n.t('គ្រប់គ្រងការគណនាតម្លៃ ផលិតកម្ម ស្តុកក្រដាស និងវិក្កយបត្ររោងពុម្ពក្នុងប្រព័ន្ធតែមួយ', 'Manage Printing Quotations, Press Workflow, Paper Stock & Invoicing in One Cloud') }}
+      </h1>
+      <p class="text-slate-300 text-base sm:text-lg max-w-3xl mx-auto mb-8">
+        {{ i18n.t('រចនាឡើងសម្រាប់អាជីវកម្មរោងពុម្ពនៅកម្ពុជា គាំទ្រប្រាក់ដុល្លារ (USD) និងប្រាក់រៀល (KHR) ជាមួយប្រព័ន្ធបែងចែកសិទ្ធិបុគ្គលិក និងសុវត្ថិភាពទិន្នន័យដាច់ដោយឡែកតាមហាង។', 'Built for printing businesses in Cambodia with dual USD/KHR currency calculation, strict multi-tenant data isolation, and automated disaster recovery.') }}
+      </p>
+    </div>
+  </section>
+
+  <!-- Main Content: Pricing Plans & Tenant Registration -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 flex-1 w-full">
+    <div class="mb-12">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between mb-8">
+        <div>
+          <h2 class="text-2xl font-bold text-slate-900">
+            {{ i18n.t('១. ជ្រើសរើសកញ្ចប់សេវាកម្មជួលប្រព័ន្ធ (Subscription Plans)', '1. Choose Your Subscription Plan') }}
+          </h2>
+          <p class="text-sm text-slate-600 mt-1">
+            {{ i18n.t('ទិន្នន័យតម្លៃទាញផ្ទាល់ពី Shared Backend API (/api/v1/public/plans/)', 'Live pricing plans fetched from Shared Authoritative API (/api/v1/public/plans/)') }}
+          </p>
+        </div>
+        <div class="mt-4 sm:mt-0 inline-flex rounded-xl bg-slate-200 p-1">
+          <button
+            type="button"
+            (click)="billingCycle = 'MONTHLY'"
+            [class]="billingCycle === 'MONTHLY' ? 'px-4 py-1.5 rounded-lg bg-white text-slate-900 shadow-sm text-sm font-semibold' : 'px-4 py-1.5 text-slate-600 text-sm font-medium'"
+          >
+            {{ i18n.t('បង់ប្រចាំខែ (Monthly)', 'Monthly Billing') }}
+          </button>
+          <button
+            type="button"
+            (click)="billingCycle = 'ANNUAL'"
+            [class]="billingCycle === 'ANNUAL' ? 'px-4 py-1.5 rounded-lg bg-white text-slate-900 shadow-sm text-sm font-semibold' : 'px-4 py-1.5 text-slate-600 text-sm font-medium'"
+          >
+            {{ i18n.t('បង់ប្រចាំឆ្នាំ (ចំណេញ ២ ខែ)', 'Annual Billing (Save 2 Months)') }}
+          </button>
+        </div>
+      </div>
+
+      <div *ngIf="loadingPlans()" class="p-8 bg-white rounded-2xl border border-slate-200 text-center text-slate-500">
+        {{ i18n.t('កំពុងទាញយកកញ្ចប់តម្លៃពីម៉ាស៊ីនមេ...', 'Loading subscription plans from backend API...') }}
+      </div>
+
+      <div *ngIf="planError()" class="p-6 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm mb-6">
+        {{ planError() }}
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6" *ngIf="!loadingPlans() && plans().length > 0">
+        <div
+          *ngFor="let plan of plans()"
+          (click)="selectPlan(plan.code)"
+          [class]="selectedPlanCode === plan.code ? 'bg-white rounded-2xl p-6 border-2 border-indigo-600 shadow-md cursor-pointer transition' : 'bg-white rounded-2xl p-6 border border-slate-200 hover:border-indigo-300 shadow-sm cursor-pointer transition'"
+        >
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded-md bg-indigo-50 text-indigo-700">
+              {{ plan.code }}
+            </span>
+            <span *ngIf="selectedPlanCode === plan.code" class="text-xs font-semibold text-indigo-600">
+              ✓ {{ i18n.t('បានជ្រើសរើស', 'Selected') }}
+            </span>
+          </div>
+          <h3 class="text-xl font-bold text-slate-900">
+            {{ i18n.lang() === 'km' ? plan.name_km : plan.name_en }}
+          </h3>
+          <p class="text-sm text-slate-600 mt-2 min-h-[40px]">
+            {{ i18n.lang() === 'km' ? plan.description_km : plan.description_en }}
+          </p>
+          <div class="mt-5 pt-5 border-t border-slate-100 flex items-baseline">
+            <span class="text-3xl font-extrabold text-slate-900">
+              USD {{ billingCycle === 'ANNUAL' ? plan.annual_price_usd : plan.monthly_price_usd }}
+            </span>
+            <span class="text-sm text-slate-500 ml-1.5">
+              / {{ billingCycle === 'ANNUAL' ? i18n.t('ឆ្នាំ', 'year') : i18n.t('ខែ', 'month') }}
+            </span>
+          </div>
+          <ul class="mt-5 space-y-2 text-sm text-slate-700">
+            <li>• {{ i18n.t('គណនីបុគ្គលិករហូតដល់៖', 'Staff accounts up to:') }} <strong>{{ plan.max_staff_users }}</strong></li>
+            <li>• {{ i18n.t('ការបញ្ជាទិញប្រចាំខែ៖', 'Orders per month:') }} <strong>{{ plan.max_orders_per_month }}</strong></li>
+            <li>• {{ i18n.t('ប្រព័ន្ធស្តុកក្រដាស និងវិក្កយបត្រ USD/KHR', 'Immutable Stock Ledger & USD/KHR Invoicing') }}</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tenant Onboarding & Checkout Form -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8 max-w-3xl mx-auto">
+      <h2 class="text-xl font-bold text-slate-900 mb-2">
+        {{ i18n.t('២. ចុះឈ្មោះបើកហាងបោះពុម្ពថ្មី (Tenant Onboarding & Checkout)', '2. Register Your Printing Business & Submit Subscription') }}
+      </h2>
+      <p class="text-sm text-slate-600 mb-6">
+        {{ i18n.t('បន្ទាប់ពីដាក់ស្នើ គណនីហាងរបស់អ្នកនឹងត្រូវបានបង្កើតក្នុង PostgreSQL ហើយរង់ចាំការផ្ទៀងផ្ទាត់ការបង់ប្រាក់ពី Super Admin (Frontend A)។', 'Submitting creates your isolated Tenant, Owner Account, and Pending Subscription Payment in PostgreSQL for Super Admin verification.') }}
+      </p>
+
+      <div *ngIf="submitError()" class="mb-6 p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm">
+        {{ submitError() }}
+      </div>
+
+      <div *ngIf="registrationResult() as result" class="mb-6 p-6 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900">
+        <h3 class="font-bold text-lg text-emerald-800 mb-2">
+          🎉 {{ i18n.t('ការចុះឈ្មោះហាងបោះពុម្ពបានជោគជ័យ!', 'Tenant Registration Submitted Successfully!') }}
+        </h3>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm mt-3">
+          <div><strong>Tenant Slug:</strong> {{ result.tenant_slug }}</div>
+          <div><strong>Tenant Status:</strong> <span class="px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-semibold">{{ result.tenant_status }}</span></div>
+          <div><strong>Amount Due (USD):</strong> USD {{ result.amount_usd }}</div>
+          <div><strong>Payment ID:</strong> <code class="text-xs">{{ result.payment_id }}</code></div>
+        </div>
+        <p class="text-xs text-emerald-700 mt-4">
+          {{ i18n.t('ជំហានបន្ទាប់៖ សូមបើក Super Admin Portal (http://localhost:4201) ដើម្បីចុច Approve Payment នោះហាងរបស់អ្នកនឹងក្លាយជា ACTIVE ភ្លាម!', 'Next step: Open Super Admin Portal (http://localhost:4201) and click Approve Payment to activate this tenant workspace!') }}
+        </p>
+      </div>
+
+      <form (ngSubmit)="submitRegistration()" class="space-y-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">
+              {{ i18n.t('ឈ្មោះម្ចាស់ហាង (Full Name)', 'Owner Full Name') }} *
+            </label>
+            <input
+              type="text"
+              name="fullName"
+              [(ngModel)]="fullName"
+              required
+              placeholder="Sokha Printing"
+              class="w-full rounded-lg border border-slate-300 px-3.5 py-2 text-sm focus:border-indigo-600 focus:outline-none"
+            />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">
+              {{ i18n.t('លេខទូរស័ព្ទ (Phone)', 'Phone Number') }} *
+            </label>
+            <input
+              type="text"
+              name="phone"
+              [(ngModel)]="phone"
+              required
+              placeholder="012 345 678"
+              class="w-full rounded-lg border border-slate-300 px-3.5 py-2 text-sm focus:border-indigo-600 focus:outline-none"
+            />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">
+              {{ i18n.t('អ៊ីមែលសម្រាប់ Login (Email)', 'Owner Login Email') }} *
+            </label>
+            <input
+              type="email"
+              name="email"
+              [(ngModel)]="email"
+              required
+              placeholder="owner@myprintshop.com"
+              class="w-full rounded-lg border border-slate-300 px-3.5 py-2 text-sm focus:border-indigo-600 focus:outline-none"
+            />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">
+              {{ i18n.t('ពាក្យសម្ងាត់ (យ៉ាងតិច ១០ ខ្ទង់ - Argon2id)', 'Password (Min 10 chars - Argon2id)') }} *
+            </label>
+            <input
+              type="password"
+              name="password"
+              [(ngModel)]="password"
+              required
+              placeholder="••••••••••"
+              class="w-full rounded-lg border border-slate-300 px-3.5 py-2 text-sm focus:border-indigo-600 focus:outline-none"
+            />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">
+              {{ i18n.t('ឈ្មោះរោងពុម្ព (Printing Business Name)', 'Printing Business Name') }} *
+            </label>
+            <input
+              type="text"
+              name="businessName"
+              [(ngModel)]="businessName"
+              (ngModelChange)="autoSlug($event)"
+              required
+              placeholder="Bayon Digital Printing"
+              class="w-full rounded-lg border border-slate-300 px-3.5 py-2 text-sm focus:border-indigo-600 focus:outline-none"
+            />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">
+              {{ i18n.t('លេខសម្គាល់ហាង (Unique Tenant Slug)', 'Tenant Identifier Slug') }} *
+            </label>
+            <input
+              type="text"
+              name="businessSlug"
+              [(ngModel)]="businessSlug"
+              required
+              placeholder="bayon-digital-printing"
+              class="w-full rounded-lg border border-slate-300 px-3.5 py-2 text-sm bg-slate-50 font-mono focus:border-indigo-600 focus:outline-none"
+            />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">
+              {{ i18n.t('វិធីបង់ប្រាក់ (Payment Method)', 'Payment Method') }}
+            </label>
+            <select
+              name="paymentProvider"
+              [(ngModel)]="paymentProvider"
+              class="w-full rounded-lg border border-slate-300 px-3.5 py-2 text-sm bg-white"
+            >
+              <option value="MANUAL_TRANSFER">ABA KHQR / Bank Transfer (Manual Verification)</option>
+              <option value="MOCK_LOCAL">Mock Sandbox Payment (Local Dev/Test Only)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">
+              {{ i18n.t('លេខយោងប្រតិបត្តិការធនាគារ (Payment Ref #)', 'Bank / KHQR Reference Number') }}
+            </label>
+            <input
+              type="text"
+              name="providerReference"
+              [(ngModel)]="providerReference"
+              placeholder="ABA-TXN-20268899"
+              class="w-full rounded-lg border border-slate-300 px-3.5 py-2 text-sm focus:border-indigo-600 focus:outline-none"
+            />
+          </div>
+        </div>
+
+        <div class="pt-4">
+          <button
+            type="submit"
+            [disabled]="submitting()"
+            class="w-full py-3 px-6 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-semibold text-sm shadow-sm transition"
+          >
+            {{ submitting()
+              ? i18n.t('កំពុងបញ្ជូនទិន្នន័យចុះឈ្មោះ...', 'Submitting Registration...')
+              : i18n.t('ចុះឈ្មោះបើកហាង និងស្នើសុំបើកដំណើរការគម្រោង (' + selectedPlanCode.toUpperCase() + ')', 'Register Printing Business & Submit (' + selectedPlanCode.toUpperCase() + ')')
+            }}
+          </button>
+        </div>
+      </form>
+    </div>
+  </main>
+
+  <!-- Footer -->
+  <footer class="bg-white border-t border-slate-200 py-6 text-center text-xs text-slate-500">
+    PBMS SaaS — Frontend C (Public Website) • Shared Django REST API • PostgreSQL 18
+  </footer>
+</div>

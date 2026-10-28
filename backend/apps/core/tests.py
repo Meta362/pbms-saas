@@ -1,0 +1,81 @@
+﻿from datetime import timedelta
+from decimal import Decimal
+from django.contrib.auth import get_user_model
+from django.contrib.auth.hashers import make_password
+from django.db import IntegrityError, transaction
+from django.test import TestCase
+from django.utils import timezone
+from rest_framework.test import APIClient
+from apps.accounts.models import AuthSession, PlatformRole
+from apps.core.models import AuditEvent
+from apps.tenants.models import Tenant, TenantMembership, TenantRole, TenantStatus
+
+User = get_user_model()
+
+
+class CoreHealthAndSecurityBaselineTests(TestCase):
+    """Verifies REQ-AUTH-01, PostgreSQL Models, Constraints, and Audit Trail."""
+
+    def setUp(self) -> None:
+        self.client = APIClient()
+
+    def test_health_check_endpoint_returns_200_and_argon2_status(self) -> None:
+        response = self.client.get("/api/v1/health/")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["status"], "ok")
+        self.assertTrue(data["argon2id_enabled"])
+
+    def test_password_hasher_uses_argon2id_by_default(self) -> None:
+        hashed = make_password("StrongPrintingPass#2026")
+        self.assertTrue(hashed.startswith("argon2$argon2id$"))
+
+    def test_user_tenant_membership_session_and_audit_constraints(self) -> None:
+        owner = User.objects.create_user(
+            email="owner@angkorprint.com",
+            password="StrongPassword#2026",
+            full_name="Sokha Owner",
+        )
+        self.assertEqual(owner.platform_role, PlatformRole.NONE)
+        self.assertTrue(owner.password.startswith("argon2$argon2id$"))
+
+        tenant = Tenant.objects.create(
+            name="Angkor Printing House",
+            slug="angkor-printing",
+            status=TenantStatus.ACTIVE,
+            khr_exchange_rate=Decimal("4100.00"),
+        )
+        membership = TenantMembership.objects.create(
+            tenant=tenant,
+            user=owner,
+            role=TenantRole.TENANT_OWNER,
+        )
+        self.assertEqual(membership.role, TenantRole.TENANT_OWNER)
+
+        # Duplicate membership in same tenant must violate UniqueConstraint
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                TenantMembership.objects.create(
+                    tenant=tenant,
+                    user=owner,
+                    role=TenantRole.SALES_STAFF,
+                )
+
+        # AuthSession creation
+        session = AuthSession.objects.create(
+            user=owner,
+            current_refresh_jti_hash="a" * 64,
+            expires_at=timezone.now() + timedelta(days=7),
+        )
+        self.assertFalse(session.is_revoked)
+
+        # AuditEvent creation
+        event = AuditEvent.objects.create(
+            actor_user=owner,
+            tenant=tenant,
+            event_type="TENANT_CREATED",
+            target_model="tenants.Tenant",
+            target_id=str(tenant.id),
+            metadata={"slug": tenant.slug},
+        )
+        self.assertIsNotNone(event.id)

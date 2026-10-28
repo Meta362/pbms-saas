@@ -1,0 +1,370 @@
+<div class="min-h-screen flex flex-col bg-slate-100">
+  <!-- Top Workspace Header -->
+  <header class="bg-emerald-900 text-white px-6 py-3.5 shadow-sm flex items-center justify-between">
+    <div class="flex items-center space-x-3">
+      <div class="w-9 h-9 rounded-lg bg-emerald-500 flex items-center justify-center font-bold text-slate-950">
+        TW
+      </div>
+      <div>
+        <span class="font-bold text-base">PBMS Printing Workspace</span>
+        <span class="hidden md:inline-block ml-2 text-xs px-2 py-0.5 rounded bg-emerald-800 text-emerald-200">
+          {{ i18n.t('ប្រព័ន្ធប្រតិបត្តិការរោងពុម្ព (Frontend B - Port 4202)', 'Tenant Staff Workspace (Frontend B - Port 4202)') }}
+        </span>
+      </div>
+    </div>
+
+    <div class="flex items-center space-x-3">
+      <button
+        type="button"
+        (click)="i18n.toggleLanguage()"
+        class="px-3 py-1.5 rounded-lg bg-emerald-800 hover:bg-emerald-700 text-xs font-medium text-white"
+      >
+        {{ i18n.lang() === 'km' ? '🌐 English' : '🌐 ភាសាខ្មែរ' }}
+      </button>
+      <span *ngIf="user()" class="text-xs text-emerald-100 hidden sm:inline">
+        {{ activeTenantName() }} • {{ user()?.full_name }}
+      </span>
+      <button
+        *ngIf="user()"
+        type="button"
+        (click)="logout()"
+        class="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white"
+      >
+        {{ i18n.t('ចាកចេញ', 'Logout') }}
+      </button>
+    </div>
+  </header>
+
+  <!-- Login Form if unauthenticated -->
+  <main *ngIf="!user()" class="flex-1 flex items-center justify-center p-6">
+    <div class="w-full max-w-md bg-white border border-slate-200 rounded-2xl p-8 shadow-sm">
+      <h2 class="text-xl font-bold text-slate-900 mb-2">
+        {{ i18n.t('ចូលប្រើប្រាស់ប្រព័ន្ធរោងពុម្ព (Tenant Workspace)', 'Printing Business Staff Login') }}
+      </h2>
+      <p class="text-xs text-slate-500 mb-6">
+        {{ i18n.t('គណនីគំរូ៖ owner@angkorprint.com / ពាក្យសម្ងាត់៖ Owner@PBMS2026', 'Demo Account: owner@angkorprint.com / Password: Owner@PBMS2026') }}
+      </p>
+
+      <div *ngIf="errorMsg()" class="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs">
+        {{ errorMsg() }}
+      </div>
+
+      <form (ngSubmit)="login()" class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Email</label>
+          <input
+            type="email"
+            name="email"
+            [(ngModel)]="email"
+            required
+            class="w-full rounded-lg border border-slate-300 px-3.5 py-2 text-sm"
+          />
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Password</label>
+          <input
+            type="password"
+            name="password"
+            [(ngModel)]="password"
+            required
+            class="w-full rounded-lg border border-slate-300 px-3.5 py-2 text-sm"
+          />
+        </div>
+        <button
+          type="submit"
+          class="w-full py-2.5 px-4 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-semibold text-sm transition"
+        >
+          {{ i18n.t('ចូលប្រព័ន្ធប្រតិបត្តិការ', 'Sign In to Workspace') }}
+        </button>
+      </form>
+    </div>
+  </main>
+
+  <!-- Authenticated Tenant Workspace -->
+  <div *ngIf="user()" class="max-w-7xl mx-auto w-full px-4 sm:px-6 py-6 flex-1 space-y-6">
+    <!-- Module Navigation Tabs -->
+    <div class="flex flex-wrap gap-2 bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
+      <button
+        type="button"
+        (click)="activeTab = 'DASHBOARD'"
+        [class]="activeTab === 'DASHBOARD' ? 'px-4 py-2 rounded-lg bg-emerald-700 text-white text-xs font-semibold' : 'px-4 py-2 rounded-lg text-slate-700 hover:bg-slate-100 text-xs font-medium'"
+      >
+        1. {{ i18n.t('ផ្ទាំងសង្ខេប & អតិថិជន', 'Dashboard & Customers') }}
+      </button>
+      <button
+        type="button"
+        (click)="activeTab = 'QUOTATIONS'"
+        [class]="activeTab === 'QUOTATIONS' ? 'px-4 py-2 rounded-lg bg-emerald-700 text-white text-xs font-semibold' : 'px-4 py-2 rounded-lg text-slate-700 hover:bg-slate-100 text-xs font-medium'"
+      >
+        2. {{ i18n.t('គណនាតម្លៃ & ใบเสนอราคา (Quotations)', 'Quotations & Pricing') }}
+      </button>
+      <button
+        type="button"
+        (click)="activeTab = 'PRODUCTION'"
+        [class]="activeTab === 'PRODUCTION' ? 'px-4 py-2 rounded-lg bg-emerald-700 text-white text-xs font-semibold' : 'px-4 py-2 rounded-lg text-slate-700 hover:bg-slate-100 text-xs font-medium'"
+      >
+        3. {{ i18n.t('ការបញ្ជាទិញ & ផលិតកម្ម (Orders & Jobs)', 'Sales Orders & Production') }}
+      </button>
+      <button
+        type="button"
+        (click)="activeTab = 'INVENTORY'"
+        [class]="activeTab === 'INVENTORY' ? 'px-4 py-2 rounded-lg bg-emerald-700 text-white text-xs font-semibold' : 'px-4 py-2 rounded-lg text-slate-700 hover:bg-slate-100 text-xs font-medium'"
+      >
+        4. {{ i18n.t('ស្តុកក្រដាស & វត្ថុធាតុដើម (Stock Ledger)', 'Material Stock Ledger') }}
+      </button>
+      <button
+        type="button"
+        (click)="activeTab = 'INVOICES'"
+        [class]="activeTab === 'INVOICES' ? 'px-4 py-2 rounded-lg bg-emerald-700 text-white text-xs font-semibold' : 'px-4 py-2 rounded-lg text-slate-700 hover:bg-slate-100 text-xs font-medium'"
+      >
+        5. {{ i18n.t('វិក្កយបត្រ & ការបង់ប្រាក់ (Invoices)', 'Invoices & Payments') }}
+      </button>
+    </div>
+
+    <div *ngIf="bannerMsg()" class="p-3.5 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs font-medium flex justify-between">
+      <span>{{ bannerMsg() }}</span>
+      <button type="button" (click)="bannerMsg.set('')" class="underline">Dismiss</button>
+    </div>
+
+    <div *ngIf="errorMsg()" class="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-medium">
+      {{ errorMsg() }}
+    </div>
+
+    <!-- TAB 1: DASHBOARD & CUSTOMERS -->
+    <div *ngIf="activeTab === 'DASHBOARD'" class="space-y-6">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" *ngIf="dashboard() as d">
+        <div class="bg-white p-5 rounded-xl border border-slate-200">
+          <div class="text-xs text-slate-500">{{ i18n.t('ការបញ្ជាទិញសរុប (Sales Orders)', 'Sales Orders') }}</div>
+          <div class="text-2xl font-bold text-slate-900 mt-1">{{ d.metrics.orders_count }}</div>
+        </div>
+        <div class="bg-white p-5 rounded-xl border border-slate-200">
+          <div class="text-xs text-slate-500">{{ i18n.t('ការងារផលិតកម្មកំពុងរត់', 'Active Production Jobs') }}</div>
+          <div class="text-2xl font-bold text-indigo-600 mt-1">{{ d.metrics.active_jobs_count }}</div>
+        </div>
+        <div class="bg-white p-5 rounded-xl border border-slate-200">
+          <div class="text-xs text-slate-500">{{ i18n.t('ប្រាក់ប្រមូលបានសរុប (Collected)', 'Collected Payments') }}</div>
+          <div class="text-2xl font-bold text-emerald-600 mt-1">USD {{ d.metrics.total_collected_usd }}</div>
+        </div>
+        <div class="bg-white p-5 rounded-xl border border-slate-200">
+          <div class="text-xs text-slate-500">{{ i18n.t('បំណុលអតិថិជននៅជំពាក់', 'Outstanding Balance') }}</div>
+          <div class="text-2xl font-bold text-amber-600 mt-1">USD {{ d.metrics.outstanding_balance_usd }}</div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div class="bg-white p-6 rounded-xl border border-slate-200">
+          <h3 class="font-bold text-sm text-slate-900 mb-4">
+            {{ i18n.t('បន្ថែមអតិថិជនថ្មី (New Customer)', 'Add Customer') }}
+          </h3>
+          <form (ngSubmit)="createCustomer()" class="space-y-3">
+            <input type="text" name="custName" [(ngModel)]="custName" required placeholder="Customer Name *" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" />
+            <input type="text" name="custCompany" [(ngModel)]="custCompany" placeholder="Company Name" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" />
+            <input type="text" name="custPhone" [(ngModel)]="custPhone" required placeholder="Phone Number *" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" />
+            <button type="submit" class="w-full py-2 rounded-lg bg-emerald-700 text-white text-xs font-semibold">
+              + {{ i18n.t('រក្សាទុកអតិថិជន', 'Save Customer') }}
+            </button>
+          </form>
+        </div>
+
+        <div class="lg:col-span-2 bg-white p-6 rounded-xl border border-slate-200">
+          <h3 class="font-bold text-sm text-slate-900 mb-4">
+            {{ i18n.t('បញ្ជីអតិថិជនរបស់រោងពុម្ព', 'Tenant Customers Directory') }} ({{ customers().length }})
+          </h3>
+          <div class="divide-y divide-slate-100 text-xs">
+            <div *ngFor="let c of customers()" class="py-2.5 flex justify-between">
+              <div>
+                <span class="font-semibold text-slate-900">{{ c.name }}</span>
+                <span class="text-slate-500 ml-2">{{ c.company_name }}</span>
+              </div>
+              <div class="font-mono text-slate-600">{{ c.phone }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 2: QUOTATIONS & PRICING -->
+    <div *ngIf="activeTab === 'QUOTATIONS'" class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div class="bg-white p-6 rounded-xl border border-slate-200">
+        <h3 class="font-bold text-sm text-slate-900 mb-4">
+          {{ i18n.t('បង្កើតใบเสนอราคาថ្មី (Create Quotation)', 'New Printing Quotation') }}
+        </h3>
+        <form (ngSubmit)="createQuotation()" class="space-y-3 text-xs">
+          <div>
+            <label class="block font-semibold mb-1">Customer *</label>
+            <select name="quoteCustomerId" [(ngModel)]="quoteCustomerId" required class="w-full rounded-lg border border-slate-300 px-3 py-2 bg-white">
+              <option *ngFor="let c of customers()" [value]="c.id">{{ c.name }} ({{ c.phone }})</option>
+            </select>
+          </div>
+          <div>
+            <label class="block font-semibold mb-1">Job Title *</label>
+            <input type="text" name="quoteTitle" [(ngModel)]="quoteTitle" required placeholder="e.g. 1,000 Brochures A4" class="w-full rounded-lg border border-slate-300 px-3 py-2" />
+          </div>
+          <div>
+            <label class="block font-semibold mb-1">Print Specifications</label>
+            <input type="text" name="quoteSpec" [(ngModel)]="quoteSpec" placeholder="Art Paper 250gsm, 2-side CMYK, Matte" class="w-full rounded-lg border border-slate-300 px-3 py-2" />
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block font-semibold mb-1">Quantity *</label>
+              <input type="number" name="quoteQty" [(ngModel)]="quoteQty" required class="w-full rounded-lg border border-slate-300 px-3 py-2" />
+            </div>
+            <div>
+              <label class="block font-semibold mb-1">Unit Rate (USD) *</label>
+              <input type="text" name="quoteUnitPrice" [(ngModel)]="quoteUnitPrice" required class="w-full rounded-lg border border-slate-300 px-3 py-2" />
+            </div>
+          </div>
+          <div class="grid grid-cols-3 gap-2">
+            <div>
+              <label class="block font-semibold mb-1">Setup ($)</label>
+              <input type="text" name="quoteSetup" [(ngModel)]="quoteSetup" class="w-full rounded-lg border border-slate-300 px-2 py-1.5" />
+            </div>
+            <div>
+              <label class="block font-semibold mb-1">Finish ($)</label>
+              <input type="text" name="quoteFinishing" [(ngModel)]="quoteFinishing" class="w-full rounded-lg border border-slate-300 px-2 py-1.5" />
+            </div>
+            <div>
+              <label class="block font-semibold mb-1">Discount ($)</label>
+              <input type="text" name="quoteDiscount" [(ngModel)]="quoteDiscount" class="w-full rounded-lg border border-slate-300 px-2 py-1.5" />
+            </div>
+          </div>
+          <button type="submit" class="w-full py-2.5 rounded-lg bg-emerald-700 text-white font-semibold">
+            {{ i18n.t('គណនាតម្លៃ និងរក្សាទុក Quotation', 'Calculate & Save Quotation') }}
+          </button>
+        </form>
+      </div>
+
+      <div class="lg:col-span-2 bg-white p-6 rounded-xl border border-slate-200">
+        <h3 class="font-bold text-sm text-slate-900 mb-4">
+          {{ i18n.t('បញ្ជីใบเสนอราคา (Quotations List)', 'Quotations') }}
+        </h3>
+        <div class="space-y-3">
+          <div *ngFor="let q of quotations()" class="p-4 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <div class="text-xs font-mono text-emerald-700 font-bold">{{ q.quote_number }} • {{ q.customer_name }}</div>
+              <div class="font-semibold text-sm text-slate-900">{{ q.title }} (Qty: {{ q.quantity }})</div>
+              <div class="text-xs text-slate-500">{{ q.specification_summary }}</div>
+              <div class="text-xs font-semibold text-slate-800 mt-1">
+                Total: USD {{ q.total_usd }} ({{ q.total_khr }} ៛) • Status: {{ q.status }}
+              </div>
+            </div>
+            <div>
+              <button
+                *ngIf="q.status !== 'CONVERTED'"
+                type="button"
+                (click)="convertQuote(q.id)"
+                class="px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold"
+              >
+                → {{ i18n.t('បម្លែងជា Order & Invoice', 'Convert to Order') }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 3: SALES ORDERS & PRODUCTION JOBS -->
+    <div *ngIf="activeTab === 'PRODUCTION'" class="bg-white p-6 rounded-xl border border-slate-200">
+      <h3 class="font-bold text-sm text-slate-900 mb-4">
+        {{ i18n.t('លំហូរការងារផលិតកម្មរោងពុម្ព (Sales Orders & Production Workflow)', 'Sales Orders & Press Stage Progression') }}
+      </h3>
+      <div class="space-y-4">
+        <div *ngFor="let o of orders()" class="p-4 rounded-xl border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <div class="text-xs font-mono font-bold text-indigo-700">{{ o.order_number }} • {{ o.customer_name }}</div>
+            <div class="font-bold text-sm text-slate-900">{{ o.title }} (Qty: {{ o.quantity }})</div>
+            <div class="text-xs text-slate-600 mt-1">
+              Order Status: <strong>{{ o.status }}</strong> • Current Stage:
+              <span class="px-2 py-0.5 rounded bg-amber-100 text-amber-900 font-semibold">{{ o.production_stage }}</span>
+            </div>
+          </div>
+          <div class="flex flex-wrap gap-1.5">
+            <button
+              *ngFor="let st of stages"
+              type="button"
+              (click)="updateJobStage(o.production_job_id, st)"
+              [class]="o.production_stage === st ? 'px-2.5 py-1 rounded bg-indigo-600 text-white text-xs font-semibold' : 'px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs'"
+            >
+              {{ st }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 4: MATERIAL INVENTORY & IMMUTABLE LEDGER -->
+    <div *ngIf="activeTab === 'INVENTORY'" class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div class="bg-white p-6 rounded-xl border border-slate-200 space-y-6">
+        <div>
+          <h3 class="font-bold text-sm text-slate-900 mb-3">
+            {{ i18n.t('កត់ត្រាចលនាស្តុក (Stock Ledger Transaction)', 'Record Stock Movement') }}
+          </h3>
+          <form (ngSubmit)="recordStockMovement()" class="space-y-3 text-xs">
+            <select name="moveMaterialId" [(ngModel)]="moveMaterialId" required class="w-full rounded-lg border border-slate-300 px-3 py-2 bg-white">
+              <option *ngFor="let m of materials()" [value]="m.id">{{ m.sku }} - {{ m.name }} (Avail: {{ m.current_stock }})</option>
+            </select>
+            <select name="moveType" [(ngModel)]="moveType" class="w-full rounded-lg border border-slate-300 px-3 py-2 bg-white">
+              <option value="STOCK_IN">STOCK_IN (នាំចូលស្តុក)</option>
+              <option value="CONSUMPTION">CONSUMPTION (ដកប្រើក្នុងផលិតកម្ម)</option>
+              <option value="WASTE">WASTE (ខូចខាត)</option>
+            </select>
+            <input type="text" name="moveQty" [(ngModel)]="moveQty" required placeholder="Quantity (e.g. 250.000)" class="w-full rounded-lg border border-slate-300 px-3 py-2" />
+            <input type="text" name="moveNote" [(ngModel)]="moveNote" placeholder="Reference / Job Note" class="w-full rounded-lg border border-slate-300 px-3 py-2" />
+            <button type="submit" class="w-full py-2 rounded-lg bg-emerald-700 text-white font-semibold">
+              {{ i18n.t('កត់ត្រាចូលក្នុង Stock Ledger', 'Commit Ledger Entry') }}
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <div class="lg:col-span-2 bg-white p-6 rounded-xl border border-slate-200">
+        <h3 class="font-bold text-sm text-slate-900 mb-3">
+          {{ i18n.t('ស្តុកវត្ថុធាតុដើមបច្ចុប្បន្ន (Materials & Current Stock)', 'Material Inventory') }}
+        </h3>
+        <div class="divide-y divide-slate-100 text-xs mb-6">
+          <div *ngFor="let m of materials()" class="py-2.5 flex justify-between items-center">
+            <div>
+              <span class="font-mono font-bold text-slate-800">{{ m.sku }}</span> —
+              <span class="font-semibold">{{ m.name }}</span>
+            </div>
+            <div class="font-bold text-emerald-700 text-sm">{{ m.current_stock }} {{ m.unit }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 5: CUSTOMER INVOICES & PAYMENT ALLOCATIONS -->
+    <div *ngIf="activeTab === 'INVOICES'" class="bg-white p-6 rounded-xl border border-slate-200">
+      <h3 class="font-bold text-sm text-slate-900 mb-4">
+        {{ i18n.t('វិក្កយបត្រអតិថិជន និងការបង់ប្រាក់ (Customer Invoices & Payments)', 'Customer Invoices & Payment Allocation') }}
+      </h3>
+      <div class="space-y-4">
+        <div *ngFor="let inv of invoices()" class="p-4 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <div class="text-xs font-mono font-bold text-slate-700">{{ inv.invoice_number }} (Order: {{ inv.order_number }}) • {{ inv.customer_name }}</div>
+            <div class="text-sm font-bold text-slate-900 mt-1">
+              Total: USD {{ inv.total_usd }} ({{ inv.total_khr }} ៛) • Paid: USD {{ inv.paid_usd }} •
+              <span class="text-rose-600">Balance Due: USD {{ inv.balance_due_usd }}</span>
+            </div>
+            <span class="inline-block mt-1 px-2 py-0.5 rounded text-xs font-semibold bg-slate-100 text-slate-800">{{ inv.status }}</span>
+          </div>
+          <div *ngIf="inv.status !== 'PAID'" class="flex items-center space-x-2">
+            <input
+              type="text"
+              [(ngModel)]="paymentAmounts[inv.id]"
+              placeholder="Amount USD"
+              class="w-28 rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs"
+            />
+            <button
+              type="button"
+              (click)="recordInvoicePayment(inv.id)"
+              class="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold"
+            >
+              + {{ i18n.t('ទទួលប្រាក់ (Allocate Payment)', 'Record Payment') }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
