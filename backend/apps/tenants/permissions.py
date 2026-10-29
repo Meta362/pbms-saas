@@ -89,9 +89,10 @@ class HasActiveTenantMembership(BasePermission):
             raise PermissionDenied(
                 f"Access denied: Tenant subscription is not active (status: {subscription.status})."
             )
+        now = timezone.now()
         if (
-            subscription.current_period_end is not None
-            and subscription.current_period_end <= timezone.now()
+            subscription.current_period_end is None
+            or subscription.current_period_end <= now
         ):
             raise PermissionDenied(
                 "Access denied: Tenant subscription billing period has expired."

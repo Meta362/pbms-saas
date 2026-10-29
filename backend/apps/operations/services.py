@@ -160,8 +160,8 @@ def convert_quotation_to_order_and_invoice(
         )
     now = timezone.now()
     if (
-        subscription.current_period_end is not None
-        and subscription.current_period_end <= now
+        subscription.current_period_end is None
+        or subscription.current_period_end <= now
     ):
         raise ValidationError("Tenant subscription billing period has expired.")
 

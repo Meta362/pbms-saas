@@ -634,3 +634,91 @@ class PrintingBusinessOperationsDomainTests(TestCase):
         )
         self.assertEqual(conv_b.status_code, 201)
         self.assertEqual(SalesOrder.objects.filter(tenant=self.tenant_b).count(), 1)
+
+    def test_order_conversion_fails_closed_when_subscription_period_end_is_missing_or_expired(self) -> None:
+        self._auth_tenant_a()
+        cust_res = self.client.post(
+            "/api/v1/tenant/customers/",
+            {"name": "Period Test Customer", "phone": "012888999"},
+            format="json",
+        )
+        self.assertEqual(cust_res.status_code, 201)
+        customer_id = cust_res.json()["id"]
+
+        quote_res = self.client.post(
+            "/api/v1/tenant/quotations/",
+            {
+                "customer_id": customer_id,
+                "title": "Period Test Quotation",
+                "quantity": 100,
+                "setup_fee_usd": "5.00",
+                "unit_price_usd": "0.1000",
+            },
+            format="json",
+        )
+        self.assertEqual(quote_res.status_code, 201)
+        quote_id = quote_res.json()["id"]
+
+        # 1. Missing current_period_end (current_period_end=None) -> conversion blocked
+        self.sub_a.current_period_end = None
+        self.sub_a.save(update_fields=["current_period_end", "updated_at"])
+
+        # When calling the API endpoint, HasActiveTenantMembership blocks with 403 Forbidden
+        api_conv_res = self.client.post(
+            f"/api/v1/tenant/quotations/{quote_id}/convert/",
+            {"artwork_file_name": "test.pdf"},
+            format="json",
+        )
+        self.assertEqual(api_conv_res.status_code, 403)
+
+        # Direct service call raises ValidationError
+        from rest_framework.exceptions import ValidationError
+        from apps.operations.services import convert_quotation_to_order_and_invoice
+        with self.assertRaises(ValidationError) as ctx:
+            convert_quotation_to_order_and_invoice(
+                tenant=self.tenant_a,
+                quotation_id=quote_id,
+                artwork_file_name="test.pdf",
+                actor_user=self.owner_a,
+            )
+        self.assertIn("Tenant subscription billing period has expired.", str(ctx.exception))
+
+        # Assert quotation remains in DRAFT and zero partial records exist
+        quote = Quotation.objects.get(id=quote_id)
+        self.assertEqual(quote.status, QuotationStatus.DRAFT)
+        self.assertEqual(SalesOrder.objects.filter(quotation=quote).count(), 0)
+        self.assertEqual(ProductionJob.objects.filter(sales_order__quotation=quote).count(), 0)
+        self.assertEqual(CustomerInvoice.objects.filter(sales_order__quotation=quote).count(), 0)
+
+        # 2. Expired current_period_end -> conversion blocked
+        now = timezone.now()
+        self.sub_a.current_period_end = now - timedelta(minutes=10)
+        self.sub_a.save(update_fields=["current_period_end", "updated_at"])
+
+        with self.assertRaises(ValidationError):
+            convert_quotation_to_order_and_invoice(
+                tenant=self.tenant_a,
+                quotation_id=quote_id,
+                artwork_file_name="test.pdf",
+                actor_user=self.owner_a,
+            )
+
+        quote.refresh_from_db()
+        self.assertEqual(quote.status, QuotationStatus.DRAFT)
+        self.assertEqual(SalesOrder.objects.filter(quotation=quote).count(), 0)
+
+        # 3. Valid future period end -> conversion succeeds
+        self.sub_a.current_period_end = now + timedelta(days=30)
+        self.sub_a.save(update_fields=["current_period_end", "updated_at"])
+
+        valid_conv_res = self.client.post(
+            f"/api/v1/tenant/quotations/{quote_id}/convert/",
+            {"artwork_file_name": "test.pdf"},
+            format="json",
+        )
+        self.assertEqual(valid_conv_res.status_code, 201)
+        quote.refresh_from_db()
+        self.assertEqual(quote.status, QuotationStatus.CONVERTED)
+        self.assertEqual(SalesOrder.objects.filter(quotation=quote).count(), 1)
+        self.assertEqual(ProductionJob.objects.filter(sales_order__quotation=quote).count(), 1)
+        self.assertEqual(CustomerInvoice.objects.filter(sales_order__quotation=quote).count(), 1)

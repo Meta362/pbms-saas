@@ -175,15 +175,37 @@ class SaaSSubscriptionAndSuperAdminGovernanceTests(TestCase):
                 403,
             )
 
-        # 3. Expired current_period_end -> 403 Forbidden
+        # 3. Missing current_period_end (current_period_end=None) -> 403 Forbidden for ACTIVE & TRIALING
+        sub.status = SubscriptionStatus.ACTIVE
+        sub.current_period_end = None
+        sub.save(update_fields=["status", "current_period_end", "updated_at"])
+        self.assertEqual(self.client.get("/api/v1/tenant/context/").status_code, 403)
+
+        sub.status = SubscriptionStatus.TRIALING
+        sub.current_period_end = None
+        sub.save(update_fields=["status", "current_period_end", "updated_at"])
+        self.assertEqual(self.client.get("/api/v1/tenant/context/").status_code, 403)
+
+        # 4. Expired current_period_end -> 403 Forbidden for ACTIVE & TRIALING
         sub.status = SubscriptionStatus.ACTIVE
         sub.current_period_end = now - timedelta(minutes=5)
         sub.save(update_fields=["status", "current_period_end", "updated_at"])
         self.assertEqual(self.client.get("/api/v1/tenant/context/").status_code, 403)
 
-        # 4. Active subscription with valid future period -> 200 OK
+        sub.status = SubscriptionStatus.TRIALING
+        sub.current_period_end = now - timedelta(minutes=5)
+        sub.save(update_fields=["status", "current_period_end", "updated_at"])
+        self.assertEqual(self.client.get("/api/v1/tenant/context/").status_code, 403)
+
+        # 5. Future period end -> 200 OK for TRIALING & ACTIVE
+        sub.status = SubscriptionStatus.TRIALING
+        sub.current_period_end = now + timedelta(days=14)
+        sub.save(update_fields=["status", "current_period_end", "updated_at"])
+        self.assertEqual(self.client.get("/api/v1/tenant/context/").status_code, 200)
+
+        sub.status = SubscriptionStatus.ACTIVE
         sub.current_period_end = now + timedelta(days=30)
-        sub.save(update_fields=["current_period_end", "updated_at"])
+        sub.save(update_fields=["status", "current_period_end", "updated_at"])
         self.assertEqual(self.client.get("/api/v1/tenant/context/").status_code, 200)
 
         # 5. Super Admin suspends tenant -> both Tenant.status and TenantSubscription.status become SUSPENDED
