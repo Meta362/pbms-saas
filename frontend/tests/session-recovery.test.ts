@@ -1,3 +1,10 @@
+/**
+ * Helper & Simulation Unit Tests (Task 02.1 Baseline)
+ *
+ * Note: These tests verify pure utility functions (formatApiErrorMessage, isSubscriptionDenialError)
+ * and provide unit-level simulations. For comprehensive regression tests exercising the actual production
+ * classes (PbmsSessionClient, TenantAppComponent, AdminAppComponent), see real-session-regression.test.ts.
+ */
 import test from 'node:test';
 import assert from 'node:assert';
 import { Observable, of, throwError, delay } from 'rxjs';
