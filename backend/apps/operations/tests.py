@@ -864,3 +864,86 @@ class PrintingBusinessOperationsDomainTests(TestCase):
             format="json",
         ).json()
         self.assertEqual(q_b1["quote_number"], "QT-0001")
+
+    def _create_order_and_invoice(self) -> str:
+        self._auth_tenant_a()
+        cust_id = self.client.post(
+            "/api/v1/tenant/customers/",
+            {"name": "Invoice Test Customer", "phone": "012888777"},
+            format="json",
+        ).json()["id"]
+        quote_id = self.client.post(
+            "/api/v1/tenant/quotations/",
+            {
+                "customer_id": cust_id,
+                "title": "Invoice Validation Quote",
+                "quantity": 100,
+                "setup_fee_usd": "0.00",
+                "unit_price_usd": "1.0000",
+                "finishing_fee_usd": "0.00",
+                "discount_usd": "0.00",
+            },
+            format="json",
+        ).json()["id"]
+        conv_res = self.client.post(
+            f"/api/v1/tenant/quotations/{quote_id}/convert/",
+            {"artwork_file_name": "test_artwork.pdf"},
+            format="json",
+        )
+        return conv_res.json()["invoice_id"]
+
+    def test_invoice_payment_create_serializer_validation(self) -> None:
+        """P2 unit validation: verify InvoicePaymentCreateSerializer enforces min_value=0.01."""
+        from apps.operations.serializers import InvoicePaymentCreateSerializer
+
+        # Reject negative amounts
+        s_neg = InvoicePaymentCreateSerializer(data={"amount_usd": "-5.00"})
+        self.assertFalse(s_neg.is_valid())
+        self.assertIn("amount_usd", s_neg.errors)
+
+        # Reject zero amount
+        s_zero = InvoicePaymentCreateSerializer(data={"amount_usd": "0.00"})
+        self.assertFalse(s_zero.is_valid())
+        self.assertIn("amount_usd", s_zero.errors)
+
+        # Accept valid positive boundary amount
+        s_min = InvoicePaymentCreateSerializer(data={"amount_usd": "0.01"})
+        self.assertTrue(s_min.is_valid())
+        self.assertEqual(s_min.validated_data["amount_usd"], Decimal("0.01"))
+
+    def test_invoice_payment_rejects_negative_and_zero_amounts_via_api(self) -> None:
+        """P2 API validation: verify /tenant/invoices/{id}/payments/ returns HTTP 400 for non-positive values."""
+        invoice_id = self._create_order_and_invoice()
+
+        # 1. Negative amount
+        res_neg = self.client.post(
+            f"/api/v1/tenant/invoices/{invoice_id}/payments/",
+            {"amount_usd": "-15.00", "payment_method": "KHQR_ABA"},
+            format="json",
+        )
+        self.assertEqual(res_neg.status_code, 400)
+        self.assertIn("amount_usd", res_neg.json())
+
+        # 2. Zero amount
+        res_zero = self.client.post(
+            f"/api/v1/tenant/invoices/{invoice_id}/payments/",
+            {"amount_usd": "0.00", "payment_method": "KHQR_ABA"},
+            format="json",
+        )
+        self.assertEqual(res_zero.status_code, 400)
+        self.assertIn("amount_usd", res_zero.json())
+
+    def test_invoice_payment_accepts_valid_boundary_amount_via_api(self) -> None:
+        """P2 API validation: verify /tenant/invoices/{id}/payments/ accepts 0.01 boundary."""
+        invoice_id = self._create_order_and_invoice()
+
+        res = self.client.post(
+            f"/api/v1/tenant/invoices/{invoice_id}/payments/",
+            {"amount_usd": "0.01", "payment_method": "KHQR_ABA"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(data["paid_usd"], "0.01")
+        self.assertEqual(data["balance_due_usd"], "109.99")
+        self.assertEqual(data["status"], "PARTIALLY_PAID")

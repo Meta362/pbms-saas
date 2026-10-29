@@ -46,7 +46,7 @@ def ensure_default_plans() -> None:
                 name_en="Starter Print Shop",
                 name_km="កញ្ចប់ចាប់ផ្ដើមអាជីវកម្ម",
                 description_en="Essential quotation, order, and invoicing tools for small print shops.",
-                description_km="មុខងារចេញใบเสนอราคา បញ្ជាទិញ និងវិក្កយបត្រសម្រាប់រោងពុម្ពខ្នាតតូច។",
+                description_km="មុខងារចេញសម្រង់តម្លៃ បញ្ជាទិញ និងវិក្កយបត្រសម្រាប់រោងពុម្ពខ្នាតតូច។",
                 monthly_price_usd=Decimal("29.00"),
                 annual_price_usd=Decimal("290.00"),
                 max_staff_users=5,

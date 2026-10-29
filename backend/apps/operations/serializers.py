@@ -1,4 +1,4 @@
-﻿from decimal import Decimal
+from decimal import Decimal
 from rest_framework import serializers
 from apps.operations.models import (
     Customer,
@@ -166,6 +166,10 @@ class CustomerInvoiceSerializer(serializers.ModelSerializer):
 
 
 class InvoicePaymentCreateSerializer(serializers.Serializer):
-    amount_usd = serializers.DecimalField(max_digits=14, decimal_places=2)
+    amount_usd = serializers.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        min_value=Decimal("0.01"),
+    )
     payment_method = serializers.CharField(max_length=32, default="KHQR_ABA")
     reference_number = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")

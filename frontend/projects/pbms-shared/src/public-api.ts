@@ -68,12 +68,52 @@ export interface LoginResponse {
   user: UserProfile;
 }
 
+export const PBMS_LANG_STORAGE_KEY = 'pbms_lang';
+
 @Injectable({ providedIn: 'root' })
 export class PbmsI18nService {
-  readonly lang = signal<'km' | 'en'>('km');
+  readonly lang = signal<'km' | 'en'>(this.loadInitialLanguage());
+
+  private getStorage(): Storage | null {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        return window.localStorage;
+      }
+      if (typeof localStorage !== 'undefined') {
+        return localStorage;
+      }
+    } catch {
+      // Defensive fallback for restricted environments
+    }
+    return null;
+  }
+
+  private loadInitialLanguage(): 'km' | 'en' {
+    try {
+      const storage = this.getStorage();
+      if (storage) {
+        const stored = storage.getItem(PBMS_LANG_STORAGE_KEY);
+        if (stored === 'km' || stored === 'en') {
+          return stored;
+        }
+      }
+    } catch {
+      // Defensive fallback
+    }
+    return 'km';
+  }
 
   toggleLanguage(): void {
-    this.lang.set(this.lang() === 'km' ? 'en' : 'km');
+    const nextLang: 'km' | 'en' = this.lang() === 'km' ? 'en' : 'km';
+    this.lang.set(nextLang);
+    try {
+      const storage = this.getStorage();
+      if (storage) {
+        storage.setItem(PBMS_LANG_STORAGE_KEY, nextLang);
+      }
+    } catch {
+      // Silently ignore storage errors (quota, restricted storage)
+    }
   }
 
   t(kmText: string, enText: string): string {

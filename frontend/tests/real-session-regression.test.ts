@@ -6,6 +6,7 @@ import { HttpClient } from '@angular/common/http';
 import { Observable, of, throwError, delay, Subject } from 'rxjs';
 import {
   API_BASE_URL,
+  PBMS_LANG_STORAGE_KEY,
   PbmsI18nService,
   PbmsSessionClient,
   UserProfile,
@@ -529,3 +530,117 @@ test('Scenario E2: isSubscriptionDenialError detection', () => {
   assert.strictEqual(isSubscriptionDenialError({ status: 401, error: { detail: 'expired token' } }), false);
 });
 
+// ============================================================================
+// SECTION F: PbmsI18nService Language Preference Persistence (Task 03D)
+// ============================================================================
+
+function createMockStorage(initial?: Record<string, string>, shouldThrow = false) {
+  const store = new Map<string, string>(Object.entries(initial ?? {}));
+  return {
+    store,
+    storage: {
+      getItem: (k: string) => {
+        if (shouldThrow) throw new Error('SecurityError: Access is denied');
+        return store.get(k) ?? null;
+      },
+      setItem: (k: string, v: string) => {
+        if (shouldThrow) throw new Error('QuotaExceededError');
+        store.set(k, String(v));
+      },
+      removeItem: (k: string) => {
+        if (shouldThrow) throw new Error('SecurityError');
+        store.delete(k);
+      },
+      clear: () => store.clear(),
+      get length() {
+        return store.size;
+      },
+      key: (i: number) => Array.from(store.keys())[i] ?? null,
+    } as Storage,
+  };
+}
+
+test('Scenario F1: Default Khmer when no preference exists', () => {
+  const { storage } = createMockStorage();
+  const originalWindow = (globalThis as any).window;
+  (globalThis as any).window = { localStorage: storage };
+
+  try {
+    const service = new PbmsI18nService();
+    assert.strictEqual(service.lang(), 'km');
+    assert.strictEqual(service.t('សួស្ដី', 'Hello'), 'សួស្ដី');
+  } finally {
+    (globalThis as any).window = originalWindow;
+  }
+});
+
+test('Scenario F2: Restoring English from valid persisted preference', () => {
+  const { storage } = createMockStorage({ [PBMS_LANG_STORAGE_KEY]: 'en' });
+  const originalWindow = (globalThis as any).window;
+  (globalThis as any).window = { localStorage: storage };
+
+  try {
+    const service = new PbmsI18nService();
+    assert.strictEqual(service.lang(), 'en');
+    assert.strictEqual(service.t('សួស្ដី', 'Hello'), 'Hello');
+  } finally {
+    (globalThis as any).window = originalWindow;
+  }
+});
+
+test('Scenario F3: Ignoring invalid stored values and falling back to Khmer', () => {
+  for (const invalid of ['fr', 'zh', 'invalid', 'null', '']) {
+    const { storage } = createMockStorage({ [PBMS_LANG_STORAGE_KEY]: invalid });
+    const originalWindow = (globalThis as any).window;
+    (globalThis as any).window = { localStorage: storage };
+
+    try {
+      const service = new PbmsI18nService();
+      assert.strictEqual(service.lang(), 'km', `Expected fallback to 'km' for stored value '${invalid}'`);
+    } finally {
+      (globalThis as any).window = originalWindow;
+    }
+  }
+});
+
+test('Scenario F4: Persisting a language toggle', () => {
+  const { storage, store } = createMockStorage();
+  const originalWindow = (globalThis as any).window;
+  (globalThis as any).window = { localStorage: storage };
+
+  try {
+    const service = new PbmsI18nService();
+    assert.strictEqual(service.lang(), 'km');
+
+    // Toggle 1: km -> en
+    service.toggleLanguage();
+    assert.strictEqual(service.lang(), 'en');
+    assert.strictEqual(store.get(PBMS_LANG_STORAGE_KEY), 'en');
+    assert.strictEqual(service.t('សម្រង់តម្លៃ', 'Quotations'), 'Quotations');
+
+    // Toggle 2: en -> km
+    service.toggleLanguage();
+    assert.strictEqual(service.lang(), 'km');
+    assert.strictEqual(store.get(PBMS_LANG_STORAGE_KEY), 'km');
+    assert.strictEqual(service.t('សម្រង់តម្លៃ', 'Quotations'), 'សម្រង់តម្លៃ');
+  } finally {
+    (globalThis as any).window = originalWindow;
+  }
+});
+
+test('Scenario F5: Safe fallback to Khmer when localStorage throws', () => {
+  const { storage } = createMockStorage({}, true); // throws on access
+  const originalWindow = (globalThis as any).window;
+  (globalThis as any).window = { localStorage: storage };
+
+  try {
+    const service = new PbmsI18nService();
+    assert.strictEqual(service.lang(), 'km');
+
+    // toggle should not throw even if setItem throws
+    assert.doesNotThrow(() => service.toggleLanguage());
+    assert.strictEqual(service.lang(), 'en');
+  } finally {
+    (globalThis as any).window = originalWindow;
+  }
+});
