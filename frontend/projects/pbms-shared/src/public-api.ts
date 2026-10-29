@@ -1,4 +1,4 @@
-﻿import { Injectable, signal } from '@angular/core';
+import { Injectable, signal } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Observable, tap } from 'rxjs';
 
@@ -24,6 +24,60 @@ export interface TenantMembershipInfo {
   role: string;
   base_currency: string;
   khr_exchange_rate: string;
+}
+
+export interface TenantMembershipItem {
+  id: string;
+  tenant_id: string;
+  user_id: string;
+  email: string;
+  full_name: string;
+  phone: string;
+  role: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TenantContext {
+  tenant_id: string;
+  tenant_name: string;
+  tenant_slug: string;
+  role: string;
+  base_currency: string;
+  khr_exchange_rate: string;
+  tax_rate_percent: string;
+}
+
+export function formatApiErrorMessage(err: any, fallback = 'Operation failed.'): string {
+  if (!err) return fallback;
+  if (typeof err === 'string') return err;
+  if (typeof err.error === 'string') return err.error;
+  if (err.error?.detail) return err.error.detail;
+  if (typeof err.error === 'object') {
+    const parts: string[] = [];
+    for (const [key, val] of Object.entries(err.error)) {
+      if (Array.isArray(val)) {
+        parts.push(`${key}: ${val.join(', ')}`);
+      } else if (typeof val === 'string') {
+        parts.push(`${key}: ${val}`);
+      }
+    }
+    if (parts.length > 0) return parts.join(' | ');
+  }
+  return err.message || fallback;
+}
+
+export function isSubscriptionDenialError(err: any): boolean {
+  if (err?.status === 403) {
+    const detail = String(err?.error?.detail || err?.message || '');
+    return (
+      detail.toLowerCase().includes('subscription') ||
+      detail.toLowerCase().includes('billing period') ||
+      detail.toLowerCase().includes('expired')
+    );
+  }
+  return false;
 }
 
 export interface UserProfile {
@@ -85,9 +139,14 @@ export class PbmsSessionClient {
         refresh_token: refresh,
       })
       .pipe(
-        tap((res) => {
-          sessionStorage.setItem(`${storagePrefix}_access`, res.access_token);
-          sessionStorage.setItem(`${storagePrefix}_refresh`, res.refresh_token);
+        tap({
+          next: (res) => {
+            sessionStorage.setItem(`${storagePrefix}_access`, res.access_token);
+            sessionStorage.setItem(`${storagePrefix}_refresh`, res.refresh_token);
+          },
+          error: () => {
+            this.clearStorage(storagePrefix);
+          },
         })
       );
   }
