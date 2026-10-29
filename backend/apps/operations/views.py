@@ -40,7 +40,7 @@ from apps.operations.services import (
     record_inventory_movement,
     round_usd,
 )
-from apps.tenants.models import TenantRole
+from apps.tenants.models import Tenant, TenantRole
 from apps.tenants.permissions import HasActiveTenantMembership
 
 
@@ -246,13 +246,14 @@ class QuotationListCreateAPIView(APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
+        locked_tenant = Tenant.objects.select_for_update().get(id=request.tenant.id)
         customer = get_object_or_404(
             Customer,
             id=data["customer_id"],
-            tenant=request.tenant,
+            tenant=locked_tenant,
         )
         totals = calculate_quotation_totals(
-            tenant=request.tenant,
+            tenant=locked_tenant,
             quantity=data["quantity"],
             setup_fee_usd=data["setup_fee_usd"],
             unit_price_usd=data["unit_price_usd"],
@@ -260,9 +261,9 @@ class QuotationListCreateAPIView(APIView):
             discount_usd=data["discount_usd"],
         )
 
-        seq = Quotation.objects.filter(tenant=request.tenant).count() + 1
+        seq = Quotation.objects.filter(tenant=locked_tenant).count() + 1
         quote = Quotation.objects.create(
-            tenant=request.tenant,
+            tenant=locked_tenant,
             customer=customer,
             quote_number=f"QT-{seq:04d}",
             title=data["title"],

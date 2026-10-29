@@ -722,3 +722,145 @@ class PrintingBusinessOperationsDomainTests(TestCase):
         self.assertEqual(SalesOrder.objects.filter(quotation=quote).count(), 1)
         self.assertEqual(ProductionJob.objects.filter(sales_order__quotation=quote).count(), 1)
         self.assertEqual(CustomerInvoice.objects.filter(sales_order__quotation=quote).count(), 1)
+
+    def test_quotation_create_rejects_negative_amounts(self) -> None:
+        """
+        TASK 03B (FIN-02): Verify QuotationCreateSerializer rejects negative
+        monetary amounts for setup_fee_usd, unit_price_usd, finishing_fee_usd, and discount_usd.
+        """
+        self._auth_tenant_a()
+        cust_res = self.client.post(
+            "/api/v1/tenant/customers/",
+            {"name": "Negative Test Customer", "phone": "012999001"},
+            format="json",
+        )
+        self.assertEqual(cust_res.status_code, 201)
+        customer_id = cust_res.json()["id"]
+
+        base_payload = {
+            "customer_id": customer_id,
+            "title": "Validation Test Booklet",
+            "quantity": 100,
+            "setup_fee_usd": "5.00",
+            "unit_price_usd": "0.5000",
+            "finishing_fee_usd": "2.00",
+            "discount_usd": "1.00",
+        }
+
+        # 1. Negative setup_fee_usd
+        p1 = dict(base_payload, setup_fee_usd="-1.00")
+        res1 = self.client.post("/api/v1/tenant/quotations/", p1, format="json")
+        self.assertEqual(res1.status_code, 400)
+        self.assertIn("setup_fee_usd", res1.json())
+
+        # 2. Negative unit_price_usd
+        p2 = dict(base_payload, unit_price_usd="-0.0100")
+        res2 = self.client.post("/api/v1/tenant/quotations/", p2, format="json")
+        self.assertEqual(res2.status_code, 400)
+        self.assertIn("unit_price_usd", res2.json())
+
+        # 3. Negative finishing_fee_usd
+        p3 = dict(base_payload, finishing_fee_usd="-0.50")
+        res3 = self.client.post("/api/v1/tenant/quotations/", p3, format="json")
+        self.assertEqual(res3.status_code, 400)
+        self.assertIn("finishing_fee_usd", res3.json())
+
+        # 4. Negative discount_usd
+        p4 = dict(base_payload, discount_usd="-2.00")
+        res4 = self.client.post("/api/v1/tenant/quotations/", p4, format="json")
+        self.assertEqual(res4.status_code, 400)
+        self.assertIn("discount_usd", res4.json())
+
+    def test_quotation_create_accepts_zero_and_positive_amounts(self) -> None:
+        """
+        TASK 03B (FIN-02): Verify zero is accepted where permitted and positive values calculate accurately.
+        """
+        self._auth_tenant_a()
+        cust_res = self.client.post(
+            "/api/v1/tenant/customers/",
+            {"name": "Zero Amount Customer", "phone": "012999002"},
+            format="json",
+        )
+        self.assertEqual(cust_res.status_code, 201)
+        customer_id = cust_res.json()["id"]
+
+        zero_payload = {
+            "customer_id": customer_id,
+            "title": "Zero Cost Promotional Flyers",
+            "quantity": 50,
+            "setup_fee_usd": "0.00",
+            "unit_price_usd": "0.0000",
+            "finishing_fee_usd": "0.00",
+            "discount_usd": "0.00",
+        }
+        res = self.client.post("/api/v1/tenant/quotations/", zero_payload, format="json")
+        self.assertEqual(res.status_code, 201)
+        data = res.json()
+        self.assertEqual(data["subtotal_usd"], "0.00")
+        self.assertEqual(data["total_usd"], "0.00")
+        self.assertEqual(data["total_khr"], "0")
+
+    def test_quotation_number_sequential_allocation_under_tenant_lock(self) -> None:
+        """
+        TASK 03B (FIN-01): Verify sequential quotation numbers remain tenant-scoped
+        and serialize under row-level tenant locking.
+        """
+        self._auth_tenant_a()
+        cust_a = self.client.post(
+            "/api/v1/tenant/customers/",
+            {"name": "Seq Customer A", "phone": "012999003"},
+            format="json",
+        ).json()["id"]
+
+        q1 = self.client.post(
+            "/api/v1/tenant/quotations/",
+            {
+                "customer_id": cust_a,
+                "title": "First Quote",
+                "quantity": 100,
+                "setup_fee_usd": "5.00",
+                "unit_price_usd": "0.1000",
+                "finishing_fee_usd": "0.00",
+                "discount_usd": "0.00",
+            },
+            format="json",
+        ).json()
+        self.assertEqual(q1["quote_number"], "QT-0001")
+
+        q2 = self.client.post(
+            "/api/v1/tenant/quotations/",
+            {
+                "customer_id": cust_a,
+                "title": "Second Quote",
+                "quantity": 200,
+                "setup_fee_usd": "5.00",
+                "unit_price_usd": "0.1000",
+                "finishing_fee_usd": "0.00",
+                "discount_usd": "0.00",
+            },
+            format="json",
+        ).json()
+        self.assertEqual(q2["quote_number"], "QT-0002")
+
+        # Now test Tenant B sequence isolation
+        self._auth_tenant_b()
+        cust_b = self.client.post(
+            "/api/v1/tenant/customers/",
+            {"name": "Seq Customer B", "phone": "012999004"},
+            format="json",
+        ).json()["id"]
+
+        q_b1 = self.client.post(
+            "/api/v1/tenant/quotations/",
+            {
+                "customer_id": cust_b,
+                "title": "Tenant B First Quote",
+                "quantity": 50,
+                "setup_fee_usd": "2.00",
+                "unit_price_usd": "0.2000",
+                "finishing_fee_usd": "0.00",
+                "discount_usd": "0.00",
+            },
+            format="json",
+        ).json()
+        self.assertEqual(q_b1["quote_number"], "QT-0001")
