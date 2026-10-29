@@ -1,8 +1,9 @@
-﻿from decimal import Decimal
+from decimal import Decimal
 from django.db import transaction
 from django.db.models import Sum
 from django.shortcuts import get_object_or_404
 from rest_framework import status
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -12,6 +13,7 @@ from apps.operations.models import (
     Customer,
     CustomerInvoice,
     InventoryTransaction,
+    InventoryTransactionType,
     Material,
     OrderStatus,
     ProductionJob,
@@ -36,7 +38,9 @@ from apps.operations.services import (
     convert_quotation_to_order_and_invoice,
     record_customer_invoice_payment,
     record_inventory_movement,
+    round_usd,
 )
+from apps.tenants.models import TenantRole
 from apps.tenants.permissions import HasActiveTenantMembership
 
 
@@ -44,6 +48,16 @@ class TenantDashboardSummaryAPIView(APIView):
     """Frontend B: Operational summary metrics scoped strictly to `request.tenant`."""
 
     permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "GET": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.SALES_STAFF,
+            TenantRole.FINANCE_STAFF,
+            TenantRole.INVENTORY_STAFF,
+            TenantRole.PRODUCTION_STAFF,
+        },
+    }
 
     def get(self, request: Request) -> Response:
         tenant = request.tenant
@@ -55,15 +69,15 @@ class TenantDashboardSummaryAPIView(APIView):
             .exclude(stage=ProductionStage.COMPLETED)
             .count()
         )
-        total_invoiced_usd = (
+        total_invoiced_usd = round_usd(
             CustomerInvoice.objects.filter(tenant=tenant).aggregate(s=Sum("total_usd"))["s"]
             or Decimal("0.00")
         )
-        total_collected_usd = (
+        total_collected_usd = round_usd(
             CustomerInvoice.objects.filter(tenant=tenant).aggregate(s=Sum("paid_usd"))["s"]
             or Decimal("0.00")
         )
-        outstanding_usd = (
+        outstanding_usd = round_usd(
             CustomerInvoice.objects.filter(tenant=tenant).aggregate(s=Sum("balance_due_usd"))["s"]
             or Decimal("0.00")
         )
@@ -87,6 +101,21 @@ class TenantDashboardSummaryAPIView(APIView):
 
 class CustomerListCreateAPIView(APIView):
     permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "GET": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.SALES_STAFF,
+            TenantRole.FINANCE_STAFF,
+            TenantRole.DESIGNER,
+            TenantRole.PRODUCTION_STAFF,
+        },
+        "POST": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.SALES_STAFF,
+        },
+    }
 
     def get(self, request: Request) -> Response:
         customers = Customer.objects.filter(tenant=request.tenant)
@@ -101,6 +130,20 @@ class CustomerListCreateAPIView(APIView):
 
 class MaterialListCreateAPIView(APIView):
     permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "GET": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.INVENTORY_STAFF,
+            TenantRole.PRODUCTION_STAFF,
+            TenantRole.SALES_STAFF,
+        },
+        "POST": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.INVENTORY_STAFF,
+        },
+    }
 
     def get(self, request: Request) -> Response:
         materials = Material.objects.filter(tenant=request.tenant)
@@ -115,6 +158,20 @@ class MaterialListCreateAPIView(APIView):
 
 class InventoryMovementListCreateAPIView(APIView):
     permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "GET": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.INVENTORY_STAFF,
+            TenantRole.PRODUCTION_STAFF,
+        },
+        "POST": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.INVENTORY_STAFF,
+            TenantRole.PRODUCTION_STAFF,
+        },
+    }
 
     def get(self, request: Request) -> Response:
         txns = InventoryTransaction.objects.select_related("material").filter(
@@ -127,11 +184,33 @@ class InventoryMovementListCreateAPIView(APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
+        role = request.tenant_membership.role
+        tx_type = data["transaction_type"]
+        qty_delta = data["quantity_delta"]
+
+        if role == TenantRole.PRODUCTION_STAFF and tx_type not in (
+            InventoryTransactionType.CONSUMPTION,
+            InventoryTransactionType.WASTE,
+            InventoryTransactionType.OFFCUT_RETURN,
+        ):
+            raise PermissionDenied(
+                "Production staff may only log material consumption, waste, or offcut returns."
+            )
+
+        if (
+            role == TenantRole.INVENTORY_STAFF
+            and tx_type == InventoryTransactionType.ADJUSTMENT
+            and qty_delta < Decimal("0.000")
+        ):
+            raise PermissionDenied(
+                "Manual negative stock adjustments require TENANT_OWNER or TENANT_MANAGER approval."
+            )
+
         entry = record_inventory_movement(
             tenant=request.tenant,
             material_id=str(data["material_id"]),
-            transaction_type=data["transaction_type"],
-            quantity_delta=data["quantity_delta"],
+            transaction_type=tx_type,
+            quantity_delta=qty_delta,
             reference_note=data["reference_note"],
             actor_user=request.user,
         )
@@ -143,6 +222,19 @@ class InventoryMovementListCreateAPIView(APIView):
 
 class QuotationListCreateAPIView(APIView):
     permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "GET": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.SALES_STAFF,
+            TenantRole.FINANCE_STAFF,
+        },
+        "POST": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.SALES_STAFF,
+        },
+    }
 
     def get(self, request: Request) -> Response:
         quotes = Quotation.objects.select_related("customer").filter(tenant=request.tenant)
@@ -191,6 +283,13 @@ class QuotationListCreateAPIView(APIView):
 
 class QuotationConvertAPIView(APIView):
     permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "POST": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.SALES_STAFF,
+        },
+    }
 
     def post(self, request: Request, quotation_id: str) -> Response:
         artwork_file_name = str(request.data.get("artwork_file_name", "artwork_print_ready.pdf"))
@@ -205,6 +304,16 @@ class QuotationConvertAPIView(APIView):
 
 class SalesOrderListAPIView(APIView):
     permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "GET": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.SALES_STAFF,
+            TenantRole.DESIGNER,
+            TenantRole.PRODUCTION_STAFF,
+            TenantRole.FINANCE_STAFF,
+        },
+    }
 
     def get(self, request: Request) -> Response:
         orders = SalesOrder.objects.select_related(
@@ -215,6 +324,14 @@ class SalesOrderListAPIView(APIView):
 
 class ProductionJobStageUpdateAPIView(APIView):
     permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "POST": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.DESIGNER,
+            TenantRole.PRODUCTION_STAFF,
+        },
+    }
 
     @transaction.atomic
     def post(self, request: Request, job_id: str) -> Response:
@@ -227,6 +344,19 @@ class ProductionJobStageUpdateAPIView(APIView):
             tenant=request.tenant,
         )
         new_stage = serializer.validated_data["stage"]
+        role = request.tenant_membership.role
+
+        if role == TenantRole.DESIGNER:
+            if job.stage != ProductionStage.PENDING or new_stage != ProductionStage.PRE_PRESS:
+                raise PermissionDenied(
+                    "Designers are only permitted to transition jobs from PENDING to PRE_PRESS."
+                )
+        elif role == TenantRole.PRODUCTION_STAFF:
+            if new_stage == ProductionStage.PENDING:
+                raise PermissionDenied(
+                    "Production staff cannot revert a job stage to PENDING."
+                )
+
         job.stage = new_stage
         job.operator_notes = serializer.validated_data["operator_notes"]
         job.updated_by = request.user
@@ -259,6 +389,14 @@ class ProductionJobStageUpdateAPIView(APIView):
 
 class CustomerInvoiceListAPIView(APIView):
     permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "GET": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.FINANCE_STAFF,
+            TenantRole.SALES_STAFF,
+        },
+    }
 
     def get(self, request: Request) -> Response:
         invoices = CustomerInvoice.objects.select_related(
@@ -269,6 +407,13 @@ class CustomerInvoiceListAPIView(APIView):
 
 class CustomerInvoicePaymentAPIView(APIView):
     permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "POST": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.FINANCE_STAFF,
+        },
+    }
 
     def post(self, request: Request, invoice_id: str) -> Response:
         serializer = InvoicePaymentCreateSerializer(data=request.data)

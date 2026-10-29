@@ -1,9 +1,21 @@
-﻿from django.contrib.auth import get_user_model
+from datetime import timedelta
+from decimal import Decimal
+from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.utils import timezone
 from rest_framework.test import APIClient
-from apps.tenants.models import TenantStatus
+from apps.accounts.models import PlatformRole
+from apps.subscriptions.models import (
+    BillingCycle,
+    Plan,
+    SubscriptionStatus,
+    TenantSubscription,
+)
+from apps.subscriptions.views import ensure_default_plans
+from apps.tenants.models import Tenant, TenantMembership, TenantRole, TenantStatus
 
 User = get_user_model()
+
 
 
 class SaaSSubscriptionAndSuperAdminGovernanceTests(TestCase):
@@ -104,3 +116,155 @@ class SaaSSubscriptionAndSuperAdminGovernanceTests(TestCase):
         ctx_res = self.client.get("/api/v1/tenant/context/")
         self.assertEqual(ctx_res.status_code, 200)
         self.assertEqual(ctx_res.json()["tenant_slug"], "pp-master-print")
+
+    def test_subscription_access_gate_and_super_admin_suspend_reactivate_sync(self) -> None:
+        ensure_default_plans()
+        starter = Plan.objects.get(code="starter")
+        owner = User.objects.create_user(
+            email="owner@gate-test.com",
+            password="OwnerPass#2026",
+            full_name="Gate Owner",
+        )
+        tenant = Tenant.objects.create(
+            name="Gate Test Press",
+            slug="gate-test-press",
+            status=TenantStatus.ACTIVE,
+            khr_exchange_rate=Decimal("4100.00"),
+        )
+        TenantMembership.objects.create(
+            tenant=tenant,
+            user=owner,
+            role=TenantRole.TENANT_OWNER,
+            is_active=True,
+        )
+
+        owner_login = self.client.post(
+            "/api/v1/auth/login/",
+            {"email": "owner@gate-test.com", "password": "OwnerPass#2026"},
+            format="json",
+        ).json()
+        owner_token = owner_login["access_token"]
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {owner_token}",
+            HTTP_X_TENANT_ID=str(tenant.id),
+        )
+
+        # 1. Missing TenantSubscription record -> 403 Forbidden (fail-closed)
+        self.assertEqual(self.client.get("/api/v1/tenant/context/").status_code, 403)
+
+        # 2. Ineligible subscription statuses -> 403 Forbidden
+        now = timezone.now()
+        sub = TenantSubscription.objects.create(
+            tenant=tenant,
+            plan=starter,
+            billing_cycle=BillingCycle.MONTHLY,
+            status=SubscriptionStatus.PENDING_PAYMENT,
+            current_period_start=now,
+            current_period_end=now + timedelta(days=30),
+        )
+        for bad_status in (
+            SubscriptionStatus.PENDING_PAYMENT,
+            SubscriptionStatus.PAST_DUE,
+            SubscriptionStatus.SUSPENDED,
+            SubscriptionStatus.CANCELED,
+        ):
+            sub.status = bad_status
+            sub.save(update_fields=["status", "updated_at"])
+            self.assertEqual(
+                self.client.get("/api/v1/tenant/context/").status_code,
+                403,
+            )
+
+        # 3. Expired current_period_end -> 403 Forbidden
+        sub.status = SubscriptionStatus.ACTIVE
+        sub.current_period_end = now - timedelta(minutes=5)
+        sub.save(update_fields=["status", "current_period_end", "updated_at"])
+        self.assertEqual(self.client.get("/api/v1/tenant/context/").status_code, 403)
+
+        # 4. Active subscription with valid future period -> 200 OK
+        sub.current_period_end = now + timedelta(days=30)
+        sub.save(update_fields=["current_period_end", "updated_at"])
+        self.assertEqual(self.client.get("/api/v1/tenant/context/").status_code, 200)
+
+        # 5. Super Admin suspends tenant -> both Tenant.status and TenantSubscription.status become SUSPENDED
+        sa_login = self.client.post(
+            "/api/v1/auth/login/",
+            {"email": "admin@pbms-platform.com", "password": self.super_admin_pass},
+            format="json",
+        ).json()
+        sa_token = sa_login["access_token"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {sa_token}")
+
+        suspend_res = self.client.post(
+            f"/api/v1/super-admin/tenants/{tenant.id}/status/",
+            {"action": "SUSPEND", "reason": "Overdue invoice verification"},
+            format="json",
+        )
+        self.assertEqual(suspend_res.status_code, 200)
+        tenant.refresh_from_db()
+        sub.refresh_from_db()
+        self.assertEqual(tenant.status, TenantStatus.SUSPENDED)
+        self.assertEqual(sub.status, SubscriptionStatus.SUSPENDED)
+
+        # Suspended tenant cannot access workspace -> 403 Forbidden
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {owner_token}",
+            HTTP_X_TENANT_ID=str(tenant.id),
+        )
+        self.assertEqual(self.client.get("/api/v1/tenant/context/").status_code, 403)
+
+        # 6. Super Admin reactivates tenant -> both Tenant.status and TenantSubscription.status become ACTIVE
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {sa_token}")
+        activate_res = self.client.post(
+            f"/api/v1/super-admin/tenants/{tenant.id}/status/",
+            {"action": "ACTIVATE", "reason": "Payment settled"},
+            format="json",
+        )
+        self.assertEqual(activate_res.status_code, 200)
+        tenant.refresh_from_db()
+        sub.refresh_from_db()
+        self.assertEqual(tenant.status, TenantStatus.ACTIVE)
+        self.assertEqual(sub.status, SubscriptionStatus.ACTIVE)
+
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {owner_token}",
+            HTTP_X_TENANT_ID=str(tenant.id),
+        )
+        self.assertEqual(self.client.get("/api/v1/tenant/context/").status_code, 200)
+
+    def test_platform_support_has_read_only_access_and_cannot_mutate(self) -> None:
+        ensure_default_plans()
+        support_user = User.objects.create_user(
+            email="support@pbms-platform.com",
+            password="SupportPass#2026",
+            full_name="Platform Support Specialist",
+            is_platform_staff=True,
+            platform_role=PlatformRole.PLATFORM_SUPPORT,
+        )
+        tenant = Tenant.objects.create(
+            name="Support View Press",
+            slug="support-view-press",
+            status=TenantStatus.ACTIVE,
+        )
+
+        support_login = self.client.post(
+            "/api/v1/auth/login/",
+            {"email": "support@pbms-platform.com", "password": "SupportPass#2026"},
+            format="json",
+        ).json()
+        support_token = support_login["access_token"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {support_token}")
+
+        # Allowed read-only endpoints -> 200 OK
+        self.assertEqual(self.client.get("/api/v1/super-admin/overview/").status_code, 200)
+        self.assertEqual(self.client.get("/api/v1/super-admin/tenants/").status_code, 200)
+
+        # Denied mutation endpoints -> 403 Forbidden
+        self.assertEqual(
+            self.client.post(
+                f"/api/v1/super-admin/tenants/{tenant.id}/status/",
+                {"action": "SUSPEND", "reason": "Unauthorized support suspend"},
+                format="json",
+            ).status_code,
+            403,
+        )

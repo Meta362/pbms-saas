@@ -1,5 +1,6 @@
-﻿from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP
 from django.db import transaction
+from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 from apps.core.models import AuditEvent
 from apps.operations.models import (
@@ -16,7 +17,9 @@ from apps.operations.models import (
     QuotationStatus,
     SalesOrder,
 )
+from apps.subscriptions.models import SubscriptionStatus, TenantSubscription
 from apps.tenants.models import Tenant
+
 
 
 def round_usd(value: Decimal) -> Decimal:
@@ -137,14 +140,36 @@ def convert_quotation_to_order_and_invoice(
     actor_user,
 ) -> SalesOrder:
     """
-    REQ-PRINT-02, REQ-PRINT-03, REQ-PRINT-05:
+    REQ-PRINT-02, REQ-PRINT-03, REQ-PRINT-05, REQ-SAAS-02:
     Converts a Quotation into a SalesOrder, spawns a ProductionJob, and issues a CustomerInvoice.
+    Enforces Plan.max_orders_per_month atomically under a tenant row lock.
     """
+    locked_tenant = Tenant.objects.select_for_update().get(id=tenant.id)
+    subscription = (
+        TenantSubscription.objects.select_for_update()
+        .select_related("plan")
+        .filter(tenant=locked_tenant)
+        .first()
+    )
+    if subscription is None or subscription.status not in (
+        SubscriptionStatus.ACTIVE,
+        SubscriptionStatus.TRIALING,
+    ):
+        raise ValidationError(
+            "Tenant does not have an active subscription required to create orders."
+        )
+    now = timezone.now()
+    if (
+        subscription.current_period_end is not None
+        and subscription.current_period_end <= now
+    ):
+        raise ValidationError("Tenant subscription billing period has expired.")
+
     try:
         quote = (
             Quotation.objects.select_for_update()
             .select_related("customer")
-            .get(id=quotation_id, tenant=tenant)
+            .get(id=quotation_id, tenant=locked_tenant)
         )
     except Quotation.DoesNotExist as exc:
         raise ValidationError("Quotation not found in this tenant.") from exc
@@ -152,16 +177,37 @@ def convert_quotation_to_order_and_invoice(
     if quote.status == QuotationStatus.CONVERTED:
         raise ValidationError("Quotation has already been converted to a Sales Order.")
 
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    if month_start.month == 12:
+        next_month_start = month_start.replace(year=month_start.year + 1, month=1)
+    else:
+        next_month_start = month_start.replace(month=month_start.month + 1)
+
+    monthly_orders_count = (
+        SalesOrder.objects.filter(
+            tenant=locked_tenant,
+            created_at__gte=month_start,
+            created_at__lt=next_month_start,
+        )
+        .exclude(status=OrderStatus.CANCELED)
+        .count()
+    )
+    max_orders = subscription.plan.max_orders_per_month
+    if monthly_orders_count >= max_orders:
+        raise ValidationError(
+            f"Monthly order limit reached ({max_orders} orders per month for plan '{subscription.plan.code}')."
+        )
+
     quote.status = QuotationStatus.CONVERTED
     quote.save(update_fields=["status", "updated_at"])
 
-    seq_num = SalesOrder.objects.filter(tenant=tenant).count() + 1
+    seq_num = SalesOrder.objects.filter(tenant=locked_tenant).count() + 1
     order_number = f"SO-{seq_num:04d}"
     job_code = f"JOB-{seq_num:04d}"
     invoice_number = f"INV-{seq_num:04d}"
 
     order = SalesOrder.objects.create(
-        tenant=tenant,
+        tenant=locked_tenant,
         customer=quote.customer,
         quotation=quote,
         order_number=order_number,
@@ -176,7 +222,7 @@ def convert_quotation_to_order_and_invoice(
     )
 
     ProductionJob.objects.create(
-        tenant=tenant,
+        tenant=locked_tenant,
         sales_order=order,
         job_Code=job_code,
         stage=ProductionStage.PENDING,
@@ -184,7 +230,7 @@ def convert_quotation_to_order_and_invoice(
     )
 
     CustomerInvoice.objects.create(
-        tenant=tenant,
+        tenant=locked_tenant,
         sales_order=order,
         invoice_number=invoice_number,
         total_usd=order.total_usd,
@@ -196,7 +242,7 @@ def convert_quotation_to_order_and_invoice(
 
     AuditEvent.objects.create(
         actor_user=actor_user,
-        tenant=tenant,
+        tenant=locked_tenant,
         event_type="QUOTATION_CONVERTED_TO_ORDER",
         target_model="operations.SalesOrder",
         target_id=str(order.id),
