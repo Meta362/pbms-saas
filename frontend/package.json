@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "pbms-frontend-workspace",
   "version": "1.0.0",
   "private": true,
@@ -10,7 +10,8 @@
     "build:public": "ng build public-site --configuration production",
     "build:admin": "ng build super-admin --configuration production",
     "build:tenant": "ng build tenant-workspace --configuration production",
-    "build:all": "npm run build:public && npm run build:admin && npm run build:tenant"
+    "build:all": "npm run build:public && npm run build:admin && npm run build:tenant",
+    "test": "node --test --experimental-strip-types tests/session-recovery.test.ts"
   },
   "dependencies": {
     "@angular/animations": "19.2.0",

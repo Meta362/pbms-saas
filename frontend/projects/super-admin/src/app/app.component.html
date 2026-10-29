@@ -178,26 +178,32 @@
                   <button
                     *ngIf="t.latest_payment && t.latest_payment.status === 'PENDING'"
                     type="button"
+                    [disabled]="reconcilingPaymentId() === t.latest_payment.id"
                     (click)="reconcilePayment(t.latest_payment.id, 'APPROVE')"
-                    class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold"
+                    class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold"
                   >
-                    ✓ {{ i18n.t('អនុម័តការបង់ប្រាក់ (Approve)', 'Approve Payment') }}
+                    <span *ngIf="reconcilingPaymentId() !== t.latest_payment.id">✓ {{ i18n.t('អនុម័តការបង់ប្រាក់ (Approve)', 'Approve Payment') }}</span>
+                    <span *ngIf="reconcilingPaymentId() === t.latest_payment.id">{{ i18n.t('កំពុងដំណើរការ...', 'Processing...') }}</span>
                   </button>
                   <button
                     *ngIf="t.status === 'ACTIVE'"
                     type="button"
+                    [disabled]="togglingTenantId() === t.id"
                     (click)="toggleTenantStatus(t.id, 'SUSPEND')"
-                    class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-rose-900 text-rose-300 border border-slate-700 text-xs font-medium"
+                    class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-rose-900 disabled:opacity-50 text-rose-300 border border-slate-700 text-xs font-medium"
                   >
-                    {{ i18n.t('ផ្អាកហាង (Suspend)', 'Suspend') }}
+                    <span *ngIf="togglingTenantId() !== t.id">{{ i18n.t('ផ្អាកហាង (Suspend)', 'Suspend') }}</span>
+                    <span *ngIf="togglingTenantId() === t.id">{{ i18n.t('កំពុងផ្អាក...', 'Suspending...') }}</span>
                   </button>
                   <button
                     *ngIf="t.status === 'SUSPENDED'"
                     type="button"
+                    [disabled]="togglingTenantId() === t.id"
                     (click)="toggleTenantStatus(t.id, 'ACTIVATE')"
-                    class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium"
+                    class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-medium"
                   >
-                    {{ i18n.t('បើកដំណើរការវិញ (Activate)', 'Reactivate') }}
+                    <span *ngIf="togglingTenantId() !== t.id">{{ i18n.t('បើកដំណើរការវិញ (Activate)', 'Reactivate') }}</span>
+                    <span *ngIf="togglingTenantId() === t.id">{{ i18n.t('កំពុងដំណើរការ...', 'Processing...') }}</span>
                   </button>
                 </ng-container>
                 <ng-template #supportReadOnly>

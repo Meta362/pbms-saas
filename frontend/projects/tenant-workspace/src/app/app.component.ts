@@ -94,7 +94,16 @@ export class AppComponent implements OnInit {
   staffPassword = '';
   staffRole = 'SALES_STAFF';
   readonly submittingStaff = signal<boolean>(false);
+  readonly updatingStaffId = signal<string | null>(null);
   readonly staffActionError = signal<string>('');
+
+  // Mutation in-flight signals for idempotency and duplicate click prevention
+  readonly submittingCustomer = signal<boolean>(false);
+  readonly submittingQuote = signal<boolean>(false);
+  readonly convertingQuoteId = signal<string | null>(null);
+  readonly updatingJobId = signal<string | null>(null);
+  readonly submittingMovement = signal<boolean>(false);
+  readonly payingInvoiceId = signal<string | null>(null);
 
   readonly currentRole = computed<string>(() => {
     const ctx = this.tenantContext();
@@ -189,12 +198,51 @@ export class AppComponent implements OnInit {
     return false;
   }
 
-  private handleApiError(err: any, fallbackMessage: string): void {
+  private handleReadError(err: any, fallbackMessage: string, retryFn?: () => void): void {
     if (err?.status === 401) {
-      // Attempt token refresh
       this.session.refreshToken(this.STORAGE_KEY).subscribe({
         next: () => {
-          this.loadWorkspaceData();
+          if (retryFn) {
+            retryFn();
+          } else {
+            this.loadWorkspaceData(false);
+          }
+        },
+        error: () => {
+          this.logout('Session expired. Please sign in again.');
+        },
+      });
+      return;
+    }
+
+    if (isSubscriptionDenialError(err)) {
+      const msg = formatApiErrorMessage(err, 'Tenant subscription billing period has expired.');
+      this.subscriptionGateError.set(msg);
+      return;
+    }
+
+    const message = formatApiErrorMessage(err, fallbackMessage);
+    this.errorMsg.set(message);
+  }
+
+  private handleMutationError(
+    err: any,
+    mutationName: string,
+    fallbackMessage: string,
+    onSuccessRefresh?: () => void
+  ): void {
+    this.bannerMsg.set(''); // Prevent stale success message on error
+    if (err?.status === 401) {
+      this.session.refreshToken(this.STORAGE_KEY).subscribe({
+        next: () => {
+          this.errorMsg.set(
+            `Session refreshed. ${mutationName} was not submitted. Please verify entered data and submit again.`
+          );
+          if (onSuccessRefresh) {
+            onSuccessRefresh();
+          } else {
+            this.loadWorkspaceData(false);
+          }
         },
         error: () => {
           this.logout('Session expired. Please sign in again.');
@@ -259,6 +307,14 @@ export class AppComponent implements OnInit {
     this.subscriptionGateError.set('');
     this.bannerMsg.set('');
     this.errorMsg.set(customErrorMsg);
+    this.submittingCustomer.set(false);
+    this.submittingQuote.set(false);
+    this.convertingQuoteId.set(null);
+    this.updatingJobId.set(null);
+    this.submittingMovement.set(false);
+    this.payingInvoiceId.set(null);
+    this.submittingStaff.set(false);
+    this.updatingStaffId.set(null);
   }
 
   fetchTenantContextAndLoad(): void {
@@ -274,20 +330,24 @@ export class AppComponent implements OnInit {
         this.loadWorkspaceData();
       },
       error: (err) => {
-        this.handleApiError(err, 'Failed to verify tenant workspace context.');
+        this.handleReadError(err, 'Failed to verify tenant workspace context.', () => {
+          this.fetchTenantContextAndLoad();
+        });
       },
     });
   }
 
-  loadWorkspaceData(): void {
-    this.errorMsg.set('');
-    this.subscriptionGateError.set('');
+  loadWorkspaceData(clearMessages = true): void {
+    if (clearMessages) {
+      this.errorMsg.set('');
+      this.subscriptionGateError.set('');
+    }
     const headers = this.session.getHeaders(this.STORAGE_KEY, true);
 
     if (this.canAccessTab('DASHBOARD')) {
       this.http.get(`${API_BASE_URL}/tenant/dashboard/`, { headers }).subscribe({
         next: (d) => this.dashboard.set(d),
-        error: (err) => this.handleApiError(err, 'Failed to load dashboard metrics.'),
+        error: (err) => this.handleReadError(err, 'Failed to load dashboard metrics.'),
       });
       this.http.get<any[]>(`${API_BASE_URL}/tenant/customers/`, { headers }).subscribe({
         next: (list) => {
@@ -296,21 +356,21 @@ export class AppComponent implements OnInit {
             this.quoteCustomerId = list[0].id;
           }
         },
-        error: (err) => this.handleApiError(err, 'Failed to load customers.'),
+        error: (err) => this.handleReadError(err, 'Failed to load customers.'),
       });
     }
 
     if (this.canAccessTab('QUOTATIONS')) {
       this.http.get<any[]>(`${API_BASE_URL}/tenant/quotations/`, { headers }).subscribe({
         next: (list) => this.quotations.set(list),
-        error: (err) => this.handleApiError(err, 'Failed to load quotations.'),
+        error: (err) => this.handleReadError(err, 'Failed to load quotations.'),
       });
     }
 
     if (this.canAccessTab('PRODUCTION')) {
       this.http.get<any[]>(`${API_BASE_URL}/tenant/orders/`, { headers }).subscribe({
         next: (list) => this.orders.set(list),
-        error: (err) => this.handleApiError(err, 'Failed to load production orders.'),
+        error: (err) => this.handleReadError(err, 'Failed to load production orders.'),
       });
     }
 
@@ -322,7 +382,7 @@ export class AppComponent implements OnInit {
             this.moveMaterialId = list[0].id;
           }
         },
-        error: (err) => this.handleApiError(err, 'Failed to load inventory materials.'),
+        error: (err) => this.handleReadError(err, 'Failed to load inventory materials.'),
       });
     }
 
@@ -336,7 +396,7 @@ export class AppComponent implements OnInit {
             }
           });
         },
-        error: (err) => this.handleApiError(err, 'Failed to load customer invoices.'),
+        error: (err) => this.handleReadError(err, 'Failed to load customer invoices.'),
       });
     }
 
@@ -350,7 +410,7 @@ export class AppComponent implements OnInit {
     const headers = this.session.getHeaders(this.STORAGE_KEY, true);
     this.http.get<TenantMembershipItem[]>(`${API_BASE_URL}/tenant/memberships/`, { headers }).subscribe({
       next: (list) => this.memberships.set(list),
-      error: (err) => this.handleApiError(err, 'Failed to load staff memberships.'),
+      error: (err) => this.handleReadError(err, 'Failed to load staff memberships.'),
     });
   }
 
@@ -392,15 +452,21 @@ export class AppComponent implements OnInit {
         },
         error: (err) => {
           this.submittingStaff.set(false);
-          this.staffActionError.set(
-            formatApiErrorMessage(err, 'Failed to add staff member. Check inputs or plan staff limit.')
-          );
+          if (err?.status === 401) {
+            this.handleMutationError(err, 'Staff member creation', 'Failed to add staff member.');
+          } else {
+            this.staffActionError.set(
+              formatApiErrorMessage(err, 'Failed to add staff member. Check inputs or plan staff limit.')
+            );
+          }
         },
       });
   }
 
   updateStaffRole(membershipId: string, newRole: string): void {
     this.staffActionError.set('');
+    if (this.updatingStaffId()) return;
+    this.updatingStaffId.set(membershipId);
     const headers = this.session.getHeaders(this.STORAGE_KEY, true);
     this.http
       .patch<TenantMembershipItem>(
@@ -410,19 +476,27 @@ export class AppComponent implements OnInit {
       )
       .subscribe({
         next: (updated) => {
+          this.updatingStaffId.set(null);
           this.bannerMsg.set(`Updated role for ${updated.full_name} to ${updated.role}.`);
           this.loadMemberships();
         },
         error: (err) => {
-          this.staffActionError.set(
-            formatApiErrorMessage(err, 'Failed to update staff member role.')
-          );
+          this.updatingStaffId.set(null);
+          if (err?.status === 401) {
+            this.handleMutationError(err, 'Staff role update', 'Failed to update staff member role.');
+          } else {
+            this.staffActionError.set(
+              formatApiErrorMessage(err, 'Failed to update staff member role.')
+            );
+          }
         },
       });
   }
 
   toggleStaffActive(membership: TenantMembershipItem): void {
     this.staffActionError.set('');
+    if (this.updatingStaffId()) return;
+    this.updatingStaffId.set(membership.id);
     const headers = this.session.getHeaders(this.STORAGE_KEY, true);
     const newActive = !membership.is_active;
     this.http
@@ -433,23 +507,31 @@ export class AppComponent implements OnInit {
       )
       .subscribe({
         next: (updated) => {
+          this.updatingStaffId.set(null);
           const actionText = updated.is_active ? 'reactivated' : 'deactivated';
           this.bannerMsg.set(`Staff member ${updated.full_name} ${actionText}.`);
           this.loadMemberships();
         },
         error: (err) => {
-          this.staffActionError.set(
-            formatApiErrorMessage(
-              err,
-              'Failed to update staff status. Cannot deactivate last active Tenant Owner.'
-            )
-          );
+          this.updatingStaffId.set(null);
+          if (err?.status === 401) {
+            this.handleMutationError(err, 'Staff status update', 'Failed to update staff status.');
+          } else {
+            this.staffActionError.set(
+              formatApiErrorMessage(
+                err,
+                'Failed to update staff status. Cannot deactivate last active Tenant Owner.'
+              )
+            );
+          }
         },
       });
   }
 
   createCustomer(): void {
     this.errorMsg.set('');
+    if (this.submittingCustomer()) return;
+    this.submittingCustomer.set(true);
     const headers = this.session.getHeaders(this.STORAGE_KEY, true);
     this.http
       .post(
@@ -459,6 +541,7 @@ export class AppComponent implements OnInit {
       )
       .subscribe({
         next: () => {
+          this.submittingCustomer.set(false);
           this.custName = '';
           this.custCompany = '';
           this.custPhone = '';
@@ -466,13 +549,20 @@ export class AppComponent implements OnInit {
           this.loadWorkspaceData();
         },
         error: (err) => {
-          this.handleApiError(err, 'Failed to add customer. Ensure name and phone are provided.');
+          this.submittingCustomer.set(false);
+          this.handleMutationError(
+            err,
+            'New customer creation',
+            'Failed to add customer. Ensure name and phone are provided.'
+          );
         },
       });
   }
 
   createQuotation(): void {
     this.errorMsg.set('');
+    if (this.submittingQuote()) return;
+    this.submittingQuote.set(true);
     const headers = this.session.getHeaders(this.STORAGE_KEY, true);
     this.http
       .post(
@@ -491,12 +581,15 @@ export class AppComponent implements OnInit {
       )
       .subscribe({
         next: () => {
+          this.submittingQuote.set(false);
           this.bannerMsg.set('Quotation calculated and saved.');
           this.loadWorkspaceData();
         },
         error: (err) => {
-          this.handleApiError(
+          this.submittingQuote.set(false);
+          this.handleMutationError(
             err,
+            'Quotation calculation',
             'Failed to save quotation. Ensure valid customer and pricing inputs.'
           );
         },
@@ -505,6 +598,8 @@ export class AppComponent implements OnInit {
 
   convertQuote(quotationId: string): void {
     this.errorMsg.set('');
+    if (this.convertingQuoteId()) return;
+    this.convertingQuoteId.set(quotationId);
     const headers = this.session.getHeaders(this.STORAGE_KEY, true);
     this.http
       .post(
@@ -514,13 +609,16 @@ export class AppComponent implements OnInit {
       )
       .subscribe({
         next: () => {
+          this.convertingQuoteId.set(null);
           this.bannerMsg.set('Quotation converted into Sales Order, Production Job, and Invoice!');
           this.loadWorkspaceData();
           this.activeTab = 'PRODUCTION';
         },
         error: (err) => {
-          this.handleApiError(
+          this.convertingQuoteId.set(null);
+          this.handleMutationError(
             err,
+            'Quotation conversion',
             'Quotation conversion failed. Verify subscription entitlement and order limits.'
           );
         },
@@ -529,6 +627,8 @@ export class AppComponent implements OnInit {
 
   updateJobStage(jobId: string, stage: string): void {
     this.errorMsg.set('');
+    if (this.updatingJobId()) return;
+    this.updatingJobId.set(jobId);
     const headers = this.session.getHeaders(this.STORAGE_KEY, true);
     this.http
       .post(
@@ -538,12 +638,15 @@ export class AppComponent implements OnInit {
       )
       .subscribe({
         next: () => {
+          this.updatingJobId.set(null);
           this.bannerMsg.set(`Production job stage updated to ${stage}.`);
           this.loadWorkspaceData();
         },
         error: (err) => {
-          this.handleApiError(
+          this.updatingJobId.set(null);
+          this.handleMutationError(
             err,
+            'Job stage transition',
             `Cannot transition stage to ${stage}. Check role permissions.`
           );
         },
@@ -552,6 +655,8 @@ export class AppComponent implements OnInit {
 
   recordStockMovement(): void {
     this.errorMsg.set('');
+    if (this.submittingMovement()) return;
+    this.submittingMovement.set(true);
     const headers = this.session.getHeaders(this.STORAGE_KEY, true);
     this.http
       .post(
@@ -566,12 +671,15 @@ export class AppComponent implements OnInit {
       )
       .subscribe({
         next: () => {
+          this.submittingMovement.set(false);
           this.bannerMsg.set('Immutable inventory ledger transaction recorded.');
           this.loadWorkspaceData();
         },
         error: (err) => {
-          this.handleApiError(
+          this.submittingMovement.set(false);
+          this.handleMutationError(
             err,
+            'Stock movement',
             'Stock movement rejected. Check non-negative constraints and role permissions.'
           );
         },
@@ -580,6 +688,8 @@ export class AppComponent implements OnInit {
 
   recordInvoicePayment(invoiceId: string): void {
     this.errorMsg.set('');
+    if (this.payingInvoiceId()) return;
+    this.payingInvoiceId.set(invoiceId);
     const headers = this.session.getHeaders(this.STORAGE_KEY, true);
     const amount = this.paymentAmounts[invoiceId] || '0.00';
     this.http
@@ -594,11 +704,13 @@ export class AppComponent implements OnInit {
       )
       .subscribe({
         next: () => {
+          this.payingInvoiceId.set(null);
           this.bannerMsg.set(`Payment of USD ${amount} allocated to invoice.`);
           this.loadWorkspaceData();
         },
         error: (err) => {
-          this.handleApiError(err, 'Payment allocation failed.');
+          this.payingInvoiceId.set(null);
+          this.handleMutationError(err, 'Invoice payment allocation', 'Payment allocation failed.');
         },
       });
   }

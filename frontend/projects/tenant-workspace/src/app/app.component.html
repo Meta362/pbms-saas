@@ -192,8 +192,9 @@
             <input type="text" name="custName" [(ngModel)]="custName" required placeholder="Customer Name *" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" />
             <input type="text" name="custCompany" [(ngModel)]="custCompany" placeholder="Company Name" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" />
             <input type="text" name="custPhone" [(ngModel)]="custPhone" required placeholder="Phone Number *" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" />
-            <button type="submit" class="w-full py-2 rounded-lg bg-emerald-700 text-white text-xs font-semibold">
-              + {{ i18n.t('រក្សាទុកអតិថិជន', 'Save Customer') }}
+            <button type="submit" [disabled]="submittingCustomer()" class="w-full py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white text-xs font-semibold">
+              <span *ngIf="!submittingCustomer()">+ {{ i18n.t('រក្សាទុកអតិថិជន', 'Save Customer') }}</span>
+              <span *ngIf="submittingCustomer()">{{ i18n.t('កំពុងរក្សាទុក...', 'Saving...') }}</span>
             </button>
           </form>
         </div>
@@ -263,8 +264,9 @@
               <input type="text" name="quoteDiscount" [(ngModel)]="quoteDiscount" class="w-full rounded-lg border border-slate-300 px-2 py-1.5" />
             </div>
           </div>
-          <button type="submit" class="w-full py-2.5 rounded-lg bg-emerald-700 text-white font-semibold">
-            {{ i18n.t('គណនាតម្លៃ និងរក្សាទុក Quotation', 'Calculate & Save Quotation') }}
+          <button type="submit" [disabled]="submittingQuote()" class="w-full py-2.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-semibold">
+            <span *ngIf="!submittingQuote()">{{ i18n.t('គណនាតម្លៃ និងរក្សាទុក Quotation', 'Calculate & Save Quotation') }}</span>
+            <span *ngIf="submittingQuote()">{{ i18n.t('កំពុងគណនា...', 'Calculating & Saving...') }}</span>
           </button>
         </form>
       </div>
@@ -287,10 +289,12 @@
               <button
                 *ngIf="canMutateQuotes() && q.status !== 'CONVERTED'"
                 type="button"
+                [disabled]="convertingQuoteId() === q.id"
                 (click)="convertQuote(q.id)"
-                class="px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold"
+                class="px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-semibold"
               >
-                → {{ i18n.t('បម្លែងជា Order & Invoice', 'Convert to Order') }}
+                <span *ngIf="convertingQuoteId() !== q.id">→ {{ i18n.t('បម្លែងជា Order & Invoice', 'Convert to Order') }}</span>
+                <span *ngIf="convertingQuoteId() === q.id">{{ i18n.t('កំពុងបម្លែង...', 'Converting...') }}</span>
               </button>
               <span *ngIf="q.status === 'CONVERTED'" class="px-2.5 py-1 rounded bg-slate-100 text-slate-600 text-xs font-semibold">
                 {{ i18n.t('បានបម្លែងរួចរាល់', 'Converted') }}
@@ -324,8 +328,9 @@
               <button
                 *ngIf="canTransitionStage(o.production_stage, st); else disabledOrCurrentStage"
                 type="button"
+                [disabled]="updatingJobId() === o.production_job_id"
                 (click)="updateJobStage(o.production_job_id, st)"
-                [class]="o.production_stage === st ? 'px-2.5 py-1 rounded bg-indigo-600 text-white text-xs font-semibold' : 'px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs'"
+                [class]="o.production_stage === st ? 'px-2.5 py-1 rounded bg-indigo-600 text-white text-xs font-semibold' : 'px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-700 text-xs'"
               >
                 {{ st }}
               </button>
@@ -364,8 +369,9 @@
             </select>
             <input type="text" name="moveQty" [(ngModel)]="moveQty" required placeholder="Quantity (e.g. 250.000)" class="w-full rounded-lg border border-slate-300 px-3 py-2" />
             <input type="text" name="moveNote" [(ngModel)]="moveNote" placeholder="Reference / Job Note" class="w-full rounded-lg border border-slate-300 px-3 py-2" />
-            <button type="submit" class="w-full py-2 rounded-lg bg-emerald-700 text-white font-semibold">
-              {{ i18n.t('កត់ត្រាចូលក្នុង Stock Ledger', 'Commit Ledger Entry') }}
+            <button type="submit" [disabled]="submittingMovement()" class="w-full py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-semibold">
+              <span *ngIf="!submittingMovement()">{{ i18n.t('កត់ត្រាចូលក្នុង Stock Ledger', 'Commit Ledger Entry') }}</span>
+              <span *ngIf="submittingMovement()">{{ i18n.t('កំពុងកត់ត្រា...', 'Committing...') }}</span>
             </button>
           </form>
         </div>
@@ -414,10 +420,12 @@
             />
             <button
               type="button"
+              [disabled]="payingInvoiceId() === inv.id"
               (click)="recordInvoicePayment(inv.id)"
-              class="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold"
+              class="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white text-xs font-semibold"
             >
-              + {{ i18n.t('ទទួលប្រាក់ (Allocate Payment)', 'Record Payment') }}
+              <span *ngIf="payingInvoiceId() !== inv.id">+ {{ i18n.t('ទទួលប្រាក់ (Allocate Payment)', 'Record Payment') }}</span>
+              <span *ngIf="payingInvoiceId() === inv.id">{{ i18n.t('កំពុងដំណើរការ...', 'Processing...') }}</span>
             </button>
           </div>
         </div>
@@ -511,9 +519,10 @@
                   </td>
                   <td class="py-3 px-3">
                     <select
+                      [disabled]="updatingStaffId() === m.id"
                       [ngModel]="m.role"
                       (ngModelChange)="updateStaffRole(m.id, $event)"
-                      class="rounded border border-slate-300 px-2 py-1 text-xs bg-white"
+                      class="rounded border border-slate-300 px-2 py-1 text-xs bg-white disabled:opacity-50"
                     >
                       <option *ngFor="let r of staffRoles" [value]="r">{{ r }}</option>
                     </select>
@@ -528,8 +537,9 @@
                   <td class="py-3 px-3 text-right">
                     <button
                       type="button"
+                      [disabled]="updatingStaffId() === m.id"
                       (click)="toggleStaffActive(m)"
-                      [class]="m.is_active ? 'px-2.5 py-1 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 font-medium' : 'px-2.5 py-1 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-medium'"
+                      [class]="m.is_active ? 'px-2.5 py-1 rounded bg-rose-50 hover:bg-rose-100 disabled:opacity-50 text-rose-700 font-medium' : 'px-2.5 py-1 rounded bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50 text-emerald-700 font-medium'"
                     >
                       {{ m.is_active ? i18n.t('ផ្អាក', 'Deactivate') : i18n.t('បើកវិញ', 'Reactivate') }}
                     </button>

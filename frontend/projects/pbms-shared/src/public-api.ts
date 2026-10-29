@@ -1,6 +1,6 @@
 import { Injectable, signal } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
-import { Observable, tap } from 'rxjs';
+import { Observable, finalize, shareReplay, tap, throwError } from 'rxjs';
 
 export const API_BASE_URL = 'http://localhost:8000/api/v1';
 
@@ -49,36 +49,7 @@ export interface TenantContext {
   tax_rate_percent: string;
 }
 
-export function formatApiErrorMessage(err: any, fallback = 'Operation failed.'): string {
-  if (!err) return fallback;
-  if (typeof err === 'string') return err;
-  if (typeof err.error === 'string') return err.error;
-  if (err.error?.detail) return err.error.detail;
-  if (typeof err.error === 'object') {
-    const parts: string[] = [];
-    for (const [key, val] of Object.entries(err.error)) {
-      if (Array.isArray(val)) {
-        parts.push(`${key}: ${val.join(', ')}`);
-      } else if (typeof val === 'string') {
-        parts.push(`${key}: ${val}`);
-      }
-    }
-    if (parts.length > 0) return parts.join(' | ');
-  }
-  return err.message || fallback;
-}
-
-export function isSubscriptionDenialError(err: any): boolean {
-  if (err?.status === 403) {
-    const detail = String(err?.error?.detail || err?.message || '');
-    return (
-      detail.toLowerCase().includes('subscription') ||
-      detail.toLowerCase().includes('billing period') ||
-      detail.toLowerCase().includes('expired')
-    );
-  }
-  return false;
-}
+export * from './helpers';
 
 export interface UserProfile {
   id: string;
@@ -112,7 +83,16 @@ export class PbmsI18nService {
 
 @Injectable({ providedIn: 'root' })
 export class PbmsSessionClient {
-  constructor(private readonly http: HttpClient) {}
+  private readonly refreshRequests = new Map<
+    string,
+    Observable<{ access_token: string; refresh_token: string }>
+  >();
+
+  private readonly http: HttpClient;
+
+  constructor(http: HttpClient) {
+    this.http = http;
+  }
 
   login(email: string, password: string, storagePrefix: string): Observable<LoginResponse> {
     return this.http
@@ -133,8 +113,18 @@ export class PbmsSessionClient {
   }
 
   refreshToken(storagePrefix: string): Observable<{ access_token: string; refresh_token: string }> {
+    const existing = this.refreshRequests.get(storagePrefix);
+    if (existing) {
+      return existing;
+    }
+
     const refresh = sessionStorage.getItem(`${storagePrefix}_refresh`) || '';
-    return this.http
+    if (!refresh) {
+      this.clearStorage(storagePrefix);
+      return throwError(() => new Error('No refresh token available.'));
+    }
+
+    const refresh$ = this.http
       .post<{ access_token: string; refresh_token: string }>(`${API_BASE_URL}/auth/refresh/`, {
         refresh_token: refresh,
       })
@@ -144,17 +134,31 @@ export class PbmsSessionClient {
             sessionStorage.setItem(`${storagePrefix}_access`, res.access_token);
             sessionStorage.setItem(`${storagePrefix}_refresh`, res.refresh_token);
           },
-          error: () => {
-            this.clearStorage(storagePrefix);
+          error: (err) => {
+            if (err?.status === 401 || err?.status === 403 || err?.status === 400) {
+              this.clearStorage(storagePrefix);
+            }
           },
-        })
+        }),
+        finalize(() => {
+          this.refreshRequests.delete(storagePrefix);
+        }),
+        shareReplay(1)
       );
+
+    this.refreshRequests.set(storagePrefix, refresh$);
+    return refresh$;
   }
 
   logout(storagePrefix: string): Observable<{ status: string }> {
     const headers = this.getHeaders(storagePrefix, false);
+    const refresh = sessionStorage.getItem(`${storagePrefix}_refresh`) || '';
     return this.http
-      .post<{ status: string }>(`${API_BASE_URL}/auth/logout/`, {}, { headers })
+      .post<{ status: string }>(
+        `${API_BASE_URL}/auth/logout/`,
+        { refresh_token: refresh },
+        { headers }
+      )
       .pipe(
         tap({
           next: () => this.clearStorage(storagePrefix),
