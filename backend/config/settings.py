@@ -1,22 +1,49 @@
 ﻿import os
 from pathlib import Path
 from dotenv import load_dotenv
+from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
+
+DEBUG = os.getenv("DJANGO_DEBUG", "True").lower() in ("true", "1", "yes")
 
 SECRET_KEY = os.getenv(
     "DJANGO_SECRET_KEY",
     "dev-only-insecure-secret-key-replace-in-env-immediately-9876543210",
 )
 
-DEBUG = os.getenv("DJANGO_DEBUG", "True").lower() in ("true", "1", "yes")
+if not DEBUG:
+    invalid_secrets = (
+        "",
+        "dev-only-insecure-secret-key-replace-in-env-immediately-9876543210",
+        "replace-with-a-secure-50-char-random-string",
+    )
+    if not SECRET_KEY or SECRET_KEY in invalid_secrets:
+        raise ImproperlyConfigured("Invalid or missing DJANGO_SECRET_KEY for production.")
 
 ALLOWED_HOSTS = [
     host.strip()
     for host in os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,testserver").split(",")
     if host.strip()
 ]
+
+if not DEBUG:
+    # Ensure ALLOWED_HOSTS is not purely local in production
+    if all(host in ("localhost", "127.0.0.1", "testserver") for host in ALLOWED_HOSTS):
+        raise ImproperlyConfigured("DJANGO_ALLOWED_HOSTS cannot be local-only in production.")
+
+    # HTTPS and Cookie Security Settings
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+
+    # Trusted proxy requirements: The reverse proxy must correctly set HTTP_X_FORWARDED_PROTO to 'https'
+    # when traffic is over HTTPS, and must strip or override this header for direct HTTP requests.
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 INSTALLED_APPS = [
     "django.contrib.admin",

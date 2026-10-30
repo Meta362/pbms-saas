@@ -17,6 +17,74 @@ User = get_user_model()
 
 from unittest.mock import patch
 
+import os
+import importlib
+from django.core.exceptions import ImproperlyConfigured
+
+class ProductionSettingsSecurityTests(TestCase):
+    """Verifies that production settings (DEBUG=False) strictly validate secrets and allowed hosts."""
+
+    def test_missing_or_invalid_secret_key_in_production(self):
+        with patch.dict(os.environ, {"DJANGO_DEBUG": "False", "DJANGO_SECRET_KEY": ""}):
+            with self.assertRaisesMessage(ImproperlyConfigured, "Invalid or missing DJANGO_SECRET_KEY for production."):
+                import config.settings
+                importlib.reload(config.settings)
+
+        with patch.dict(os.environ, {"DJANGO_DEBUG": "False", "DJANGO_SECRET_KEY": "replace-with-a-secure-50-char-random-string"}):
+            with self.assertRaisesMessage(ImproperlyConfigured, "Invalid or missing DJANGO_SECRET_KEY for production."):
+                import config.settings
+                importlib.reload(config.settings)
+
+    def test_local_only_allowed_hosts_in_production(self):
+        with patch.dict(os.environ, {
+            "DJANGO_DEBUG": "False",
+            "DJANGO_SECRET_KEY": "a-valid-production-secret-key-that-is-long-enough",
+            "DJANGO_ALLOWED_HOSTS": "localhost,127.0.0.1"
+        }):
+            with self.assertRaisesMessage(ImproperlyConfigured, "DJANGO_ALLOWED_HOSTS cannot be local-only in production."):
+                import config.settings
+                importlib.reload(config.settings)
+
+    def test_valid_production_settings_pass(self):
+        with patch.dict(os.environ, {
+            "DJANGO_DEBUG": "False",
+            "DJANGO_SECRET_KEY": "a-valid-production-secret-key-that-is-long-enough",
+            "DJANGO_ALLOWED_HOSTS": "pbms.example.com"
+        }):
+            try:
+                import config.settings
+                importlib.reload(config.settings)
+
+                # Check HTTPS settings were applied
+                self.assertTrue(config.settings.SECURE_SSL_REDIRECT)
+                self.assertTrue(config.settings.SESSION_COOKIE_SECURE)
+                self.assertTrue(config.settings.CSRF_COOKIE_SECURE)
+                self.assertEqual(config.settings.SECURE_HSTS_SECONDS, 31536000)
+                self.assertTrue(config.settings.SECURE_HSTS_INCLUDE_SUBDOMAINS)
+                self.assertTrue(config.settings.SECURE_HSTS_PRELOAD)
+                self.assertEqual(config.settings.SECURE_PROXY_SSL_HEADER, ("HTTP_X_FORWARDED_PROTO", "https"))
+            except ImproperlyConfigured:
+                self.fail("Valid production settings raised ImproperlyConfigured unexpectedly.")
+            finally:
+                # Reload settings back to normal
+                importlib.reload(config.settings)
+
+    def test_development_settings_pass_with_defaults(self):
+        with patch.dict(os.environ, {
+            "DJANGO_DEBUG": "True",
+            "DJANGO_SECRET_KEY": "replace-with-a-secure-50-char-random-string",
+            "DJANGO_ALLOWED_HOSTS": "localhost,127.0.0.1"
+        }):
+            try:
+                import config.settings
+                importlib.reload(config.settings)
+            except ImproperlyConfigured:
+                self.fail("Development settings raised ImproperlyConfigured unexpectedly.")
+            finally:
+                # Reload settings back to normal
+                importlib.reload(config.settings)
+
+
 class SeedPbmsDemoCommandTests(TestCase):
     """Regression tests for the seed_pbms_demo command safeguard."""
 
