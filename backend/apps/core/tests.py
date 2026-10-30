@@ -25,12 +25,12 @@ class ProductionSettingsSecurityTests(TestCase):
     """Verifies that production settings (DEBUG=False) strictly validate secrets and allowed hosts."""
 
     def test_missing_or_invalid_secret_key_in_production(self):
-        with patch.dict(os.environ, {"DJANGO_DEBUG": "False", "DJANGO_SECRET_KEY": ""}):
+        with patch.dict(os.environ, {"DJANGO_DEBUG": "False", "DJANGO_SECRET_KEY": ""}, clear=True):
             with self.assertRaisesMessage(ImproperlyConfigured, "Invalid or missing DJANGO_SECRET_KEY for production."):
                 import config.settings
                 importlib.reload(config.settings)
 
-        with patch.dict(os.environ, {"DJANGO_DEBUG": "False", "DJANGO_SECRET_KEY": "replace-with-a-secure-50-char-random-string"}):
+        with patch.dict(os.environ, {"DJANGO_DEBUG": "False", "DJANGO_SECRET_KEY": "replace-with-a-secure-50-char-random-string"}, clear=True):
             with self.assertRaisesMessage(ImproperlyConfigured, "Invalid or missing DJANGO_SECRET_KEY for production."):
                 import config.settings
                 importlib.reload(config.settings)
@@ -40,7 +40,7 @@ class ProductionSettingsSecurityTests(TestCase):
             "DJANGO_DEBUG": "False",
             "DJANGO_SECRET_KEY": "a-valid-production-secret-key-that-is-long-enough",
             "DJANGO_ALLOWED_HOSTS": "localhost,127.0.0.1"
-        }):
+        }, clear=True):
             with self.assertRaisesMessage(ImproperlyConfigured, "DJANGO_ALLOWED_HOSTS cannot be local-only in production."):
                 import config.settings
                 importlib.reload(config.settings)
@@ -52,7 +52,7 @@ class ProductionSettingsSecurityTests(TestCase):
                 "DJANGO_SECRET_KEY": "a-valid-production-secret-key-that-is-long-enough",
                 "DJANGO_ALLOWED_HOSTS": "pbms.example.com",
                 "DJANGO_SECURE_SSL_REDIRECT": "True"
-            }):
+            }, clear=True):
                 import config.settings
                 importlib.reload(config.settings)
 
@@ -61,11 +61,32 @@ class ProductionSettingsSecurityTests(TestCase):
                 self.assertTrue(config.settings.SESSION_COOKIE_SECURE)
                 self.assertTrue(config.settings.CSRF_COOKIE_SECURE)
                 self.assertEqual(config.settings.SECURE_HSTS_SECONDS, 31536000)
-                self.assertTrue(config.settings.SECURE_HSTS_INCLUDE_SUBDOMAINS)
-                self.assertTrue(config.settings.SECURE_HSTS_PRELOAD)
+                self.assertFalse(config.settings.SECURE_HSTS_INCLUDE_SUBDOMAINS)
+                self.assertFalse(config.settings.SECURE_HSTS_PRELOAD)
                 self.assertEqual(config.settings.SECURE_PROXY_SSL_HEADER, ("HTTP_X_FORWARDED_PROTO", "https"))
         except ImproperlyConfigured:
             self.fail("Valid production settings raised ImproperlyConfigured unexpectedly.")
+        finally:
+            # Reload settings back to normal
+            import config.settings
+            importlib.reload(config.settings)
+
+    def test_production_settings_hsts_overrides(self):
+        try:
+            with patch.dict(os.environ, {
+                "DJANGO_DEBUG": "False",
+                "DJANGO_SECRET_KEY": "a-valid-production-secret-key-that-is-long-enough",
+                "DJANGO_ALLOWED_HOSTS": "pbms.example.com",
+                "DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS": "True",
+                "DJANGO_SECURE_HSTS_PRELOAD": "True"
+            }, clear=True):
+                import config.settings
+                importlib.reload(config.settings)
+
+                self.assertTrue(config.settings.SECURE_HSTS_INCLUDE_SUBDOMAINS)
+                self.assertTrue(config.settings.SECURE_HSTS_PRELOAD)
+        except ImproperlyConfigured:
+            self.fail("Valid production settings raised ImproperlyConfigured unexpectedly with HSTS overrides.")
         finally:
             # Reload settings back to normal
             import config.settings
@@ -77,7 +98,7 @@ class ProductionSettingsSecurityTests(TestCase):
                 "DJANGO_DEBUG": "True",
                 "DJANGO_SECRET_KEY": "replace-with-a-secure-50-char-random-string",
                 "DJANGO_ALLOWED_HOSTS": "localhost,127.0.0.1"
-            }):
+            }, clear=True):
                 import config.settings
                 importlib.reload(config.settings)
         except ImproperlyConfigured:
