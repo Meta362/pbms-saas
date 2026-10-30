@@ -29,15 +29,10 @@ class SeedPbmsDemoCommandTests(TestCase):
             call_command("seed_pbms_demo")
 
     @override_settings(DEBUG=True)
-    @patch("apps.core.management.commands.seed_pbms_demo.ensure_default_plans")
-    @patch("apps.core.management.commands.seed_pbms_demo.Plan")
-    @patch("apps.core.management.commands.seed_pbms_demo.User")
-    @patch("apps.core.management.commands.seed_pbms_demo.Tenant")
-    @patch("apps.core.management.commands.seed_pbms_demo.TenantMembership")
-    @patch("apps.core.management.commands.seed_pbms_demo.TenantSubscription")
-    @patch("apps.core.management.commands.seed_pbms_demo.SubscriptionPayment")
-    def test_seed_demo_succeeds_in_development(self, *mocks):
-        """Ensure the seed command executes without raising CommandError when DEBUG is True."""
+    def test_seed_demo_succeeds_in_development(self):
+        """Ensure the seed command executes without raising CommandError when DEBUG is True.
+        This runs in the isolated Django test database and rolls back automatically.
+        """
         try:
             call_command("seed_pbms_demo")
         except CommandError:
