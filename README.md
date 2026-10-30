@@ -32,13 +32,19 @@ Production-oriented B2B Printing Business Management System SaaS built with **Th
 ### Start All 4 Services
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\ops\start_all_services.ps1
-Demo Credentials (Seeded via python manage.py seed_pbms_demo)
+```
+
+**Demo Credentials (Seeded via `python manage.py seed_pbms_demo`)**
+*Note: These seeded demo accounts are for local development only. Do not use or expose these credentials in any deployed or production environments.*
+
 Super Admin Portal (http://localhost:4201):
 Email: admin@pbms.local
 Password: Admin@PBMS2026
+
 Tenant Workspace (http://localhost:4202 — Angkor Printing House):
 Email: owner@angkorprint.com
 Password: Owner@PBMS2026
+
 Run Backend Tests (PostgreSQL)
 code
 Powershell

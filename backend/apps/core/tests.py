@@ -3,7 +3,9 @@ from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import make_password
 from django.db import IntegrityError, transaction
-from django.test import TestCase
+from django.core.management import call_command
+from django.core.management.base import CommandError
+from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 from apps.accounts.models import AuthSession, PlatformRole
@@ -11,6 +13,30 @@ from apps.core.models import AuditEvent
 from apps.tenants.models import Tenant, TenantMembership, TenantRole, TenantStatus
 
 User = get_user_model()
+
+
+from unittest.mock import patch
+
+class SeedPbmsDemoCommandTests(TestCase):
+    """Regression tests for the seed_pbms_demo command safeguard."""
+
+    @override_settings(DEBUG=False)
+    def test_seed_demo_fails_in_production(self):
+        """Ensure the seed command raises a CommandError when DEBUG is False."""
+        with self.assertRaisesMessage(
+            CommandError, "This command can only be run in local development mode (DEBUG=True)."
+        ):
+            call_command("seed_pbms_demo")
+
+    @override_settings(DEBUG=True)
+    def test_seed_demo_succeeds_in_development(self):
+        """Ensure the seed command executes without raising CommandError when DEBUG is True.
+        This runs in the isolated Django test database and rolls back automatically.
+        """
+        try:
+            call_command("seed_pbms_demo")
+        except CommandError:
+            self.fail("seed_pbms_demo raised CommandError unexpectedly with DEBUG=True.")
 
 
 class CoreHealthAndSecurityBaselineTests(TestCase):

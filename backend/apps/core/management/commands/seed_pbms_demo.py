@@ -1,7 +1,8 @@
 ﻿from datetime import timedelta
 from decimal import Decimal
+from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
 from apps.operations.models import Customer, InventoryTransactionType, Material, MaterialUnit, Quotation
@@ -31,6 +32,9 @@ class Command(BaseCommand):
 
     @transaction.atomic
     def handle(self, *args, **options) -> None:
+        if not settings.DEBUG:
+            raise CommandError("This command can only be run in local development mode (DEBUG=True).")
+
         ensure_default_plans()
         growth_plan = Plan.objects.get(code="growth")
         starter_plan = Plan.objects.get(code="starter")
