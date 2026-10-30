@@ -15,6 +15,35 @@ from apps.tenants.models import Tenant, TenantMembership, TenantRole, TenantStat
 User = get_user_model()
 
 
+from unittest.mock import patch
+
+class SeedPbmsDemoCommandTests(TestCase):
+    """Regression tests for the seed_pbms_demo command safeguard."""
+
+    @override_settings(DEBUG=False)
+    def test_seed_demo_fails_in_production(self):
+        """Ensure the seed command raises a CommandError when DEBUG is False."""
+        with self.assertRaisesMessage(
+            CommandError, "This command can only be run in local development mode (DEBUG=True)."
+        ):
+            call_command("seed_pbms_demo")
+
+    @override_settings(DEBUG=True)
+    @patch("apps.core.management.commands.seed_pbms_demo.ensure_default_plans")
+    @patch("apps.core.management.commands.seed_pbms_demo.Plan")
+    @patch("apps.core.management.commands.seed_pbms_demo.User")
+    @patch("apps.core.management.commands.seed_pbms_demo.Tenant")
+    @patch("apps.core.management.commands.seed_pbms_demo.TenantMembership")
+    @patch("apps.core.management.commands.seed_pbms_demo.TenantSubscription")
+    @patch("apps.core.management.commands.seed_pbms_demo.SubscriptionPayment")
+    def test_seed_demo_succeeds_in_development(self, *mocks):
+        """Ensure the seed command executes without raising CommandError when DEBUG is True."""
+        try:
+            call_command("seed_pbms_demo")
+        except CommandError:
+            self.fail("seed_pbms_demo raised CommandError unexpectedly with DEBUG=True.")
+
+
 class CoreHealthAndSecurityBaselineTests(TestCase):
     """Verifies REQ-AUTH-01, PostgreSQL Models, Constraints, and Audit Trail."""
 
