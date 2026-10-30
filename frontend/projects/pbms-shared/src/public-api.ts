@@ -1,6 +1,6 @@
-﻿import { Injectable, signal } from '@angular/core';
+import { Injectable, signal } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
-import { Observable, tap } from 'rxjs';
+import { Observable, finalize, shareReplay, tap, throwError } from 'rxjs';
 
 export const API_BASE_URL = 'http://localhost:8000/api/v1';
 
@@ -26,6 +26,41 @@ export interface TenantMembershipInfo {
   khr_exchange_rate: string;
 }
 
+export interface TenantMembershipItem {
+  id: string;
+  tenant_id: string;
+  user_id: string;
+  email: string;
+  full_name: string;
+  phone: string;
+  role: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TenantContext {
+  tenant_id: string;
+  tenant_name: string;
+  tenant_slug: string;
+  role: string;
+  base_currency: string;
+  khr_exchange_rate: string;
+  tax_rate_percent: string;
+}
+
+export interface TenantSettings {
+  id: string;
+  name: string;
+  slug: string;
+  base_currency: string;
+  khr_exchange_rate: string;
+  tax_rate_percent: string;
+  updated_at: string;
+}
+
+export * from './helpers';
+
 export interface UserProfile {
   id: string;
   email: string;
@@ -43,12 +78,52 @@ export interface LoginResponse {
   user: UserProfile;
 }
 
+export const PBMS_LANG_STORAGE_KEY = 'pbms_lang';
+
 @Injectable({ providedIn: 'root' })
 export class PbmsI18nService {
-  readonly lang = signal<'km' | 'en'>('km');
+  readonly lang = signal<'km' | 'en'>(this.loadInitialLanguage());
+
+  private getStorage(): Storage | null {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        return window.localStorage;
+      }
+      if (typeof localStorage !== 'undefined') {
+        return localStorage;
+      }
+    } catch {
+      // Defensive fallback for restricted environments
+    }
+    return null;
+  }
+
+  private loadInitialLanguage(): 'km' | 'en' {
+    try {
+      const storage = this.getStorage();
+      if (storage) {
+        const stored = storage.getItem(PBMS_LANG_STORAGE_KEY);
+        if (stored === 'km' || stored === 'en') {
+          return stored;
+        }
+      }
+    } catch {
+      // Defensive fallback
+    }
+    return 'km';
+  }
 
   toggleLanguage(): void {
-    this.lang.set(this.lang() === 'km' ? 'en' : 'km');
+    const nextLang: 'km' | 'en' = this.lang() === 'km' ? 'en' : 'km';
+    this.lang.set(nextLang);
+    try {
+      const storage = this.getStorage();
+      if (storage) {
+        storage.setItem(PBMS_LANG_STORAGE_KEY, nextLang);
+      }
+    } catch {
+      // Silently ignore storage errors (quota, restricted storage)
+    }
   }
 
   t(kmText: string, enText: string): string {
@@ -58,7 +133,16 @@ export class PbmsI18nService {
 
 @Injectable({ providedIn: 'root' })
 export class PbmsSessionClient {
-  constructor(private readonly http: HttpClient) {}
+  private readonly refreshRequests = new Map<
+    string,
+    Observable<{ access_token: string; refresh_token: string }>
+  >();
+
+  private readonly http: HttpClient;
+
+  constructor(http: HttpClient) {
+    this.http = http;
+  }
 
   login(email: string, password: string, storagePrefix: string): Observable<LoginResponse> {
     return this.http
@@ -79,23 +163,52 @@ export class PbmsSessionClient {
   }
 
   refreshToken(storagePrefix: string): Observable<{ access_token: string; refresh_token: string }> {
+    const existing = this.refreshRequests.get(storagePrefix);
+    if (existing) {
+      return existing;
+    }
+
     const refresh = sessionStorage.getItem(`${storagePrefix}_refresh`) || '';
-    return this.http
+    if (!refresh) {
+      this.clearStorage(storagePrefix);
+      return throwError(() => new Error('No refresh token available.'));
+    }
+
+    const refresh$ = this.http
       .post<{ access_token: string; refresh_token: string }>(`${API_BASE_URL}/auth/refresh/`, {
         refresh_token: refresh,
       })
       .pipe(
-        tap((res) => {
-          sessionStorage.setItem(`${storagePrefix}_access`, res.access_token);
-          sessionStorage.setItem(`${storagePrefix}_refresh`, res.refresh_token);
-        })
+        tap({
+          next: (res) => {
+            sessionStorage.setItem(`${storagePrefix}_access`, res.access_token);
+            sessionStorage.setItem(`${storagePrefix}_refresh`, res.refresh_token);
+          },
+          error: (err) => {
+            if (err?.status === 401 || err?.status === 403 || err?.status === 400) {
+              this.clearStorage(storagePrefix);
+            }
+          },
+        }),
+        finalize(() => {
+          this.refreshRequests.delete(storagePrefix);
+        }),
+        shareReplay(1)
       );
+
+    this.refreshRequests.set(storagePrefix, refresh$);
+    return refresh$;
   }
 
   logout(storagePrefix: string): Observable<{ status: string }> {
     const headers = this.getHeaders(storagePrefix, false);
+    const refresh = sessionStorage.getItem(`${storagePrefix}_refresh`) || '';
     return this.http
-      .post<{ status: string }>(`${API_BASE_URL}/auth/logout/`, {}, { headers })
+      .post<{ status: string }>(
+        `${API_BASE_URL}/auth/logout/`,
+        { refresh_token: refresh },
+        { headers }
+      )
       .pipe(
         tap({
           next: () => this.clearStorage(storagePrefix),
