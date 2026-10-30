@@ -3,7 +3,9 @@ from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import make_password
 from django.db import IntegrityError, transaction
-from django.test import TestCase
+from django.core.management import call_command
+from django.core.management.base import CommandError
+from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 from apps.accounts.models import AuthSession, PlatformRole
