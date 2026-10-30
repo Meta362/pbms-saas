@@ -1,4 +1,4 @@
-﻿from datetime import timedelta
+from datetime import timedelta
 from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.db import transaction
@@ -11,6 +11,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from apps.core.models import AuditEvent
+from apps.operations.services import round_usd
 from apps.subscriptions.models import (
     BillingCycle,
     PaymentStatus,
@@ -26,7 +27,10 @@ from apps.subscriptions.serializers import (
     TenantStatusActionSerializer,
 )
 from apps.tenants.models import Tenant, TenantMembership, TenantRole, TenantStatus
-from apps.tenants.permissions import IsPlatformSuperAdmin
+from apps.tenants.permissions import (
+    IsPlatformSuperAdmin,
+    IsPlatformSuperAdminOrSupportReadOnly,
+)
 
 User = get_user_model()
 
@@ -42,7 +46,7 @@ def ensure_default_plans() -> None:
                 name_en="Starter Print Shop",
                 name_km="កញ្ចប់ចាប់ផ្ដើមអាជីវកម្ម",
                 description_en="Essential quotation, order, and invoicing tools for small print shops.",
-                description_km="មុខងារចេញใบเสนอราคา បញ្ជាទិញ និងវិក្កយបត្រសម្រាប់រោងពុម្ពខ្នាតតូច។",
+                description_km="មុខងារចេញសម្រង់តម្លៃ បញ្ជាទិញ និងវិក្កយបត្រសម្រាប់រោងពុម្ពខ្នាតតូច។",
                 monthly_price_usd=Decimal("29.00"),
                 annual_price_usd=Decimal("290.00"),
                 max_staff_users=5,
@@ -217,14 +221,14 @@ class PublicTenantRegistrationAPIView(APIView):
 class SuperAdminOverviewAPIView(APIView):
     """Frontend A: Platform operational health, tenant metrics, and revenue summary."""
 
-    permission_classes = [IsAuthenticated, IsPlatformSuperAdmin]
+    permission_classes = [IsAuthenticated, IsPlatformSuperAdminOrSupportReadOnly]
 
     def get(self, request: Request) -> Response:
         total_tenants = Tenant.objects.count()
         active_tenants = Tenant.objects.filter(status=TenantStatus.ACTIVE).count()
         pending_tenants = Tenant.objects.filter(status=TenantStatus.PENDING_REVIEW).count()
         pending_payments = SubscriptionPayment.objects.filter(status=PaymentStatus.PENDING).count()
-        total_revenue = (
+        total_revenue = round_usd(
             SubscriptionPayment.objects.filter(status=PaymentStatus.SUCCEEDED).aggregate(
                 total=Sum("amount_usd")
             )["total"]
@@ -259,7 +263,7 @@ class SuperAdminOverviewAPIView(APIView):
 class SuperAdminTenantListAPIView(APIView):
     """Frontend A: Lists all tenants with subscription and pending payment details."""
 
-    permission_classes = [IsAuthenticated, IsPlatformSuperAdmin]
+    permission_classes = [IsAuthenticated, IsPlatformSuperAdminOrSupportReadOnly]
 
     def get(self, request: Request) -> Response:
         tenants = Tenant.objects.select_related("subscription__plan").prefetch_related(
@@ -387,12 +391,41 @@ class SuperAdminTenantStatusAPIView(APIView):
         serializer.is_valid(raise_exception=True)
 
         tenant = get_object_or_404(Tenant.objects.select_for_update(), id=tenant_id)
+        subscription = (
+            TenantSubscription.objects.select_for_update()
+            .filter(tenant=tenant)
+            .first()
+        )
         action = serializer.validated_data["action"]
         reason = serializer.validated_data["reason"]
 
-        tenant.status = (
-            TenantStatus.SUSPENDED if action == "SUSPEND" else TenantStatus.ACTIVE
-        )
+        if action == "SUSPEND":
+            tenant.status = TenantStatus.SUSPENDED
+            if subscription is not None:
+                subscription.status = SubscriptionStatus.SUSPENDED
+                subscription.save(update_fields=["status", "updated_at"])
+        else:
+            tenant.status = TenantStatus.ACTIVE
+            if subscription is not None:
+                now = timezone.now()
+                subscription.status = SubscriptionStatus.ACTIVE
+                update_fields = ["status", "updated_at"]
+                if subscription.current_period_start is None:
+                    subscription.current_period_start = now
+                    update_fields.append("current_period_start")
+                if (
+                    subscription.current_period_end is None
+                    or subscription.current_period_end <= now
+                ):
+                    days = (
+                        365
+                        if subscription.billing_cycle == BillingCycle.ANNUAL
+                        else 30
+                    )
+                    subscription.current_period_end = now + timedelta(days=days)
+                    update_fields.append("current_period_end")
+                subscription.save(update_fields=update_fields)
+
         tenant.save(update_fields=["status", "updated_at"])
 
         AuditEvent.objects.create(
@@ -403,4 +436,10 @@ class SuperAdminTenantStatusAPIView(APIView):
             target_id=str(tenant.id),
             metadata={"reason": reason},
         )
-        return Response({"tenant_id": str(tenant.id), "status": tenant.status})
+        return Response(
+            {
+                "tenant_id": str(tenant.id),
+                "status": tenant.status,
+                "subscription_status": subscription.status if subscription else None,
+            }
+        )

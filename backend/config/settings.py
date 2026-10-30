@@ -5,12 +5,20 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
-SECRET_KEY = os.getenv(
-    "DJANGO_SECRET_KEY",
-    "dev-only-insecure-secret-key-replace-in-env-immediately-9876543210",
-)
+INSECURE_DEV_SECRET = "dev-only-insecure-secret-key-replace-in-env-immediately-9876543210"
 
-DEBUG = os.getenv("DJANGO_DEBUG", "True").lower() in ("true", "1", "yes")
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", INSECURE_DEV_SECRET)
+
+DEBUG = os.getenv("DJANGO_DEBUG", "False").lower() in ("true", "1", "yes")
+
+if not DEBUG:
+    if SECRET_KEY in (None, "", INSECURE_DEV_SECRET):
+        from django.core.exceptions import ImproperlyConfigured
+        raise ImproperlyConfigured("Production settings require a securely configured DJANGO_SECRET_KEY.")
+
+    SECURE_BROWSER_XSS_FILTER = True
+    X_FRAME_OPTIONS = "DENY"
+    SECURE_CONTENT_TYPE_NOSNIFF = True
 
 ALLOWED_HOSTS = [
     host.strip()

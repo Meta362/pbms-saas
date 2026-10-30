@@ -1,4 +1,4 @@
-﻿from decimal import Decimal
+from decimal import Decimal
 from rest_framework import serializers
 from apps.operations.models import (
     Customer,
@@ -67,10 +67,18 @@ class QuotationCreateSerializer(serializers.Serializer):
     title = serializers.CharField(max_length=200)
     specification_summary = serializers.CharField(required=False, allow_blank=True, default="")
     quantity = serializers.IntegerField(min_value=1)
-    setup_fee_usd = serializers.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
-    unit_price_usd = serializers.DecimalField(max_digits=12, decimal_places=4)
-    finishing_fee_usd = serializers.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
-    discount_usd = serializers.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    setup_fee_usd = serializers.DecimalField(
+        max_digits=12, decimal_places=2, min_value=Decimal("0.00"), default=Decimal("0.00")
+    )
+    unit_price_usd = serializers.DecimalField(
+        max_digits=12, decimal_places=4, min_value=Decimal("0.00")
+    )
+    finishing_fee_usd = serializers.DecimalField(
+        max_digits=12, decimal_places=2, min_value=Decimal("0.00"), default=Decimal("0.00")
+    )
+    discount_usd = serializers.DecimalField(
+        max_digits=12, decimal_places=2, min_value=Decimal("0.00"), default=Decimal("0.00")
+    )
 
 
 class QuotationSerializer(serializers.ModelSerializer):
@@ -158,6 +166,10 @@ class CustomerInvoiceSerializer(serializers.ModelSerializer):
 
 
 class InvoicePaymentCreateSerializer(serializers.Serializer):
-    amount_usd = serializers.DecimalField(max_digits=14, decimal_places=2)
+    amount_usd = serializers.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        min_value=Decimal("0.01"),
+    )
     payment_method = serializers.CharField(max_length=32, default="KHQR_ABA")
     reference_number = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
