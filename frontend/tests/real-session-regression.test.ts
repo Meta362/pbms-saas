@@ -213,12 +213,13 @@ test('Scenario A5 & A6: Logout contract passes refresh_token and clears storage'
 function createTenantWorkspaceHarness(options: {
   httpPostHandler?: (url: string, body: any) => Observable<any>;
   httpGetHandler?: (url: string) => Observable<any>;
+  httpPatchHandler?: (url: string, body: any) => Observable<any>;
   refreshTokenHandler?: () => Observable<any>;
 }) {
   const mockHttp = {
     post: options.httpPostHandler ?? (() => of({})),
     get: options.httpGetHandler ?? (() => of([])),
-    patch: () => of({}),
+    patch: options.httpPatchHandler ?? (() => of({})),
   } as unknown as HttpClient;
 
   const sessionClient = new PbmsSessionClient(mockHttp);
@@ -643,4 +644,174 @@ test('Scenario F5: Safe fallback to Khmer when localStorage throws', () => {
   } finally {
     (globalThis as any).window = originalWindow;
   }
+});
+
+// ============================================================================
+// SECTION G: Tenant Settings Management (Task 03E)
+// ============================================================================
+
+test('Scenario G1: Tenant Settings UI state, role gating, and mutation handling', () => {
+  setupMockSessionStorage();
+  const { component } = createTenantWorkspaceHarness({});
+
+  // 1. Initial State
+  assert.strictEqual(component.canAccessTab('SETTINGS'), true);
+  assert.strictEqual(component.activeTab, 'DASHBOARD');
+  assert.strictEqual(component.settings(), null);
+  assert.strictEqual(component.submittingSettings(), false);
+  assert.strictEqual(component.loadingSettings(), false);
+
+  // 2. Role Gating: TENANT_OWNER can mutate, others cannot
+  component.tenantContext.set({
+    tenant_id: 'tenant-123',
+    tenant_name: 'Angkor Print',
+    tenant_slug: 'angkor-print',
+    role: 'SALES_STAFF',
+    base_currency: 'USD',
+    khr_exchange_rate: '4100.00',
+    tax_rate_percent: '10.00',
+  });
+  assert.strictEqual(component.canMutateSettings(), false);
+
+  // Attempting mutation as SALES_STAFF is blocked client-side with permission message
+  component.updateSettings();
+  // Verify client-side rejection message
+  assert.ok(component.settingsError().includes('គណនីរបស់អ្នកមិនមានសិទ្ធិកែប្រែការកំណត់រោងពុម្ពឡើយ'));
+
+  // Switch to English and test English message
+  component.i18n.lang.set('en');
+  component.updateSettings();
+  assert.ok(component.settingsError().includes('Only Tenant Owner is authorized'));
+  assert.strictEqual(component.submittingSettings(), false);
+
+  // Switch to TENANT_OWNER
+  component.tenantContext.set({
+    tenant_id: 'tenant-123',
+    tenant_name: 'Angkor Print',
+    tenant_slug: 'angkor-print',
+    role: 'TENANT_OWNER',
+    base_currency: 'USD',
+    khr_exchange_rate: '4100.00',
+    tax_rate_percent: '10.00',
+  });
+  assert.strictEqual(component.canMutateSettings(), true);
+
+  // 3. Duplicate click prevention & in-flight lock
+  component.submittingSettings.set(true);
+  component.updateSettings(); // In-flight guard returns early without making duplicate requests
+  assert.strictEqual(component.submittingSettings(), true);
+});
+test('Scenario G2: Tenant Settings form values preserved on 401 token refresh', () => {
+  setupMockSessionStorage();
+  let patchCalls = 0;
+  let refreshCalls = 0;
+  let getCalls = 0;
+
+  const { component } = createTenantWorkspaceHarness({
+    httpPatchHandler: (url: string) => {
+      if (url.includes('/tenant/settings/')) {
+        patchCalls++;
+        return throwError(() => ({ status: 401, error: { detail: 'Token expired' } }));
+      }
+      return of({});
+    },
+    httpGetHandler: (url: string) => {
+      if (url.includes('/tenant/settings/')) {
+        getCalls++;
+        return of({
+          id: 'tenant-123',
+          name: 'Angkor Print',
+          slug: 'angkor-print',
+          base_currency: 'USD',
+          khr_exchange_rate: '4100.00',
+          tax_rate_percent: '10.00',
+          updated_at: '2026-10-30T12:00:00Z',
+        });
+      }
+      return of([]);
+    },
+    refreshTokenHandler: () => {
+      refreshCalls++;
+      return of({ access_token: 'refreshed-access', refresh_token: 'refreshed-refresh' });
+    },
+  });
+
+  component.tenantContext.set({
+    tenant_id: 'tenant-123',
+    tenant_name: 'Angkor Print',
+    tenant_slug: 'angkor-print',
+    role: 'TENANT_OWNER',
+    base_currency: 'USD',
+    khr_exchange_rate: '4100.00',
+    tax_rate_percent: '10.00',
+  });
+
+  // Pre-condition: User entered new rate values
+  component.settingsKhrRate = '4180.00';
+  component.settingsTaxRate = '7.50';
+
+  // Trigger updateSettings()
+  component.updateSettings();
+
+  // Assertions:
+  // 1. PATCH request sent once (no duplicate automatic replay)
+  assert.strictEqual(patchCalls, 1);
+  // 2. Token refresh was initiated and succeeded
+  assert.strictEqual(refreshCalls, 1);
+  // 3. GET settings was NOT re-fetched (no workspace reload overwriting form)
+  assert.strictEqual(getCalls, 0);
+  // 4. Form values remain intact with user input
+  assert.strictEqual(component.settingsKhrRate, '4180.00');
+  assert.strictEqual(component.settingsTaxRate, '7.50');
+  // 5. User sees session refreshed guidance instructing to submit again
+  assert.ok(component.errorMsg().includes('Session refreshed'));
+  assert.ok(component.errorMsg().includes('Tenant settings was not submitted'));
+  assert.ok(component.errorMsg().includes('submit again'));
+  // 6. In-flight guard released
+  assert.strictEqual(component.submittingSettings(), false);
+});
+
+test('Scenario G3: Tenant Settings form values preserved on 400 validation and network failure', () => {
+  setupMockSessionStorage();
+  let patchCalls = 0;
+  let simulatedError: any = {
+    status: 400,
+    error: { tax_rate_percent: ['VAT percentage must be between 0.00% and 100.00%.'] },
+  };
+
+  const { component } = createTenantWorkspaceHarness({
+    httpPatchHandler: () => {
+      patchCalls++;
+      return throwError(() => simulatedError);
+    },
+  });
+
+  component.tenantContext.set({
+    tenant_id: 'tenant-123',
+    tenant_name: 'Angkor Print',
+    tenant_slug: 'angkor-print',
+    role: 'TENANT_OWNER',
+    base_currency: 'USD',
+    khr_exchange_rate: '4100.00',
+    tax_rate_percent: '10.00',
+  });
+
+  component.settingsKhrRate = '4150.00';
+  component.settingsTaxRate = '105.00';
+
+  // 1. API validation failure (400)
+  component.updateSettings();
+  assert.strictEqual(patchCalls, 1);
+  assert.strictEqual(component.settingsKhrRate, '4150.00');
+  assert.strictEqual(component.settingsTaxRate, '105.00');
+  assert.ok(component.settingsError().includes('VAT percentage must be between 0.00% and 100.00%'));
+  assert.strictEqual(component.submittingSettings(), false);
+
+  // 2. Network drop (status 0)
+  simulatedError = { status: 0, statusText: 'Unknown Error' };
+  component.updateSettings();
+  assert.strictEqual(patchCalls, 2);
+  assert.strictEqual(component.settingsKhrRate, '4150.00');
+  assert.strictEqual(component.settingsTaxRate, '105.00');
+  assert.strictEqual(component.submittingSettings(), false);
 });

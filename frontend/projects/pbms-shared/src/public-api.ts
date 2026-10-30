@@ -49,6 +49,16 @@ export interface TenantContext {
   tax_rate_percent: string;
 }
 
+export interface TenantSettings {
+  id: string;
+  name: string;
+  slug: string;
+  base_currency: string;
+  khr_exchange_rate: string;
+  tax_rate_percent: string;
+  updated_at: string;
+}
+
 export * from './helpers';
 
 export interface UserProfile {

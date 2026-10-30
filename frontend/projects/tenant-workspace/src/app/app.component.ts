@@ -8,6 +8,7 @@ import {
   PbmsSessionClient,
   TenantContext,
   TenantMembershipItem,
+  TenantSettings,
   UserProfile,
   formatApiErrorMessage,
   isSubscriptionDenialError,
@@ -19,7 +20,8 @@ export type WorkspaceTab =
   | 'PRODUCTION'
   | 'INVENTORY'
   | 'INVOICES'
-  | 'MEMBERSHIPS';
+  | 'MEMBERSHIPS'
+  | 'SETTINGS';
 
 @Component({
   selector: 'pbms-tenant-root',
@@ -62,6 +64,14 @@ export class AppComponent implements OnInit {
   readonly materials = signal<any[]>([]);
   readonly invoices = signal<any[]>([]);
   readonly memberships = signal<TenantMembershipItem[]>([]);
+  readonly settings = signal<TenantSettings | null>(null);
+
+  // Form bindings - Settings
+  settingsKhrRate = '';
+  settingsTaxRate = '';
+  readonly loadingSettings = signal<boolean>(false);
+  readonly submittingSettings = signal<boolean>(false);
+  readonly settingsError = signal<string>('');
 
   // Form bindings - Customer
   custName = '';
@@ -161,9 +171,15 @@ export class AppComponent implements OnInit {
         );
       case 'MEMBERSHIPS':
         return role === 'TENANT_OWNER';
+      case 'SETTINGS':
+        return true;
       default:
         return false;
     }
+  }
+
+  canMutateSettings(): boolean {
+    return this.currentRole() === 'TENANT_OWNER';
   }
 
   canMutateQuotes(): boolean {
@@ -315,6 +331,12 @@ export class AppComponent implements OnInit {
     this.payingInvoiceId.set(null);
     this.submittingStaff.set(false);
     this.updatingStaffId.set(null);
+    this.settings.set(null);
+    this.settingsKhrRate = '';
+    this.settingsTaxRate = '';
+    this.loadingSettings.set(false);
+    this.submittingSettings.set(false);
+    this.settingsError.set('');
   }
 
   fetchTenantContextAndLoad(): void {
@@ -402,6 +424,10 @@ export class AppComponent implements OnInit {
 
     if (this.canAccessTab('MEMBERSHIPS')) {
       this.loadMemberships();
+    }
+
+    if (this.canAccessTab('SETTINGS')) {
+      this.loadSettings();
     }
   }
 
@@ -713,5 +739,83 @@ export class AppComponent implements OnInit {
           this.handleMutationError(err, 'Invoice payment allocation', 'Payment allocation failed.');
         },
       });
+  }
+
+  loadSettings(): void {
+    if (!this.canAccessTab('SETTINGS')) return;
+    this.loadingSettings.set(true);
+    this.settingsError.set('');
+    const headers = this.session.getHeaders(this.STORAGE_KEY, true);
+    this.http.get<TenantSettings>(`${API_BASE_URL}/tenant/settings/`, { headers }).subscribe({
+      next: (s) => {
+        this.loadingSettings.set(false);
+        this.settings.set(s);
+        this.settingsKhrRate = s.khr_exchange_rate;
+        this.settingsTaxRate = s.tax_rate_percent;
+      },
+      error: (err) => {
+        this.loadingSettings.set(false);
+        this.handleReadError(err, 'Failed to load tenant settings.');
+      },
+    });
+  }
+
+  updateSettings(): void {
+    this.settingsError.set('');
+    this.errorMsg.set('');
+    if (this.submittingSettings()) return;
+
+    if (!this.canMutateSettings()) {
+      this.settingsError.set(
+        this.i18n.t(
+          'គណនីរបស់អ្នកមិនមានសិទ្ធិកែប្រែការកំណត់រោងពុម្ពឡើយ។',
+          'Only Tenant Owner is authorized to modify tenant settings.'
+        )
+      );
+      return;
+    }
+
+    this.submittingSettings.set(true);
+    const headers = this.session.getHeaders(this.STORAGE_KEY, true);
+    const payload = {
+      khr_exchange_rate: this.settingsKhrRate,
+      tax_rate_percent: this.settingsTaxRate,
+    };
+
+    this.http.patch<TenantSettings>(`${API_BASE_URL}/tenant/settings/`, payload, { headers }).subscribe({
+      next: (updated) => {
+        this.submittingSettings.set(false);
+        this.settings.set(updated);
+        this.settingsKhrRate = updated.khr_exchange_rate;
+        this.settingsTaxRate = updated.tax_rate_percent;
+
+        const ctx = this.tenantContext();
+        if (ctx) {
+          this.tenantContext.set({
+            ...ctx,
+            khr_exchange_rate: updated.khr_exchange_rate,
+            tax_rate_percent: updated.tax_rate_percent,
+          });
+        }
+
+        this.bannerMsg.set(
+          this.i18n.t(
+            'ការកំណត់រោងពុម្ពត្រូវបានរក្សាទុកដោយជោគជ័យ។',
+            'Tenant settings saved successfully.'
+          )
+        );
+      },
+      error: (err) => {
+        this.submittingSettings.set(false);
+        const formatted = formatApiErrorMessage(err, 'Failed to save tenant settings.');
+        this.settingsError.set(formatted);
+        this.handleMutationError(
+          err,
+          'Tenant settings',
+          'Failed to save tenant settings.',
+          () => {}
+        );
+      },
+    });
   }
 }
