@@ -6,6 +6,7 @@ from django.db.models import Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -405,26 +406,33 @@ class SuperAdminTenantStatusAPIView(APIView):
                 subscription.status = SubscriptionStatus.SUSPENDED
                 subscription.save(update_fields=["status", "updated_at"])
         else:
+            now = timezone.now()
+            if subscription is None:
+                raise ValidationError(
+                    "Cannot activate a tenant without a subscription. "
+                    "Reconcile a valid subscription payment first."
+                )
+            if subscription.status != SubscriptionStatus.SUSPENDED:
+                raise ValidationError(
+                    "Only a suspended subscription can be reactivated through this endpoint. "
+                    "Use payment reconciliation for pending, past-due, or canceled subscriptions."
+                )
+            if (
+                subscription.current_period_end is None
+                or subscription.current_period_end <= now
+            ):
+                raise ValidationError(
+                    "Cannot reactivate an expired subscription. "
+                    "Approve a valid subscription payment to renew its billing period."
+                )
+
+            subscription.status = SubscriptionStatus.ACTIVE
+            update_fields = ["status", "updated_at"]
+            if subscription.current_period_start is None:
+                subscription.current_period_start = now
+                update_fields.append("current_period_start")
+            subscription.save(update_fields=update_fields)
             tenant.status = TenantStatus.ACTIVE
-            if subscription is not None:
-                now = timezone.now()
-                subscription.status = SubscriptionStatus.ACTIVE
-                update_fields = ["status", "updated_at"]
-                if subscription.current_period_start is None:
-                    subscription.current_period_start = now
-                    update_fields.append("current_period_start")
-                if (
-                    subscription.current_period_end is None
-                    or subscription.current_period_end <= now
-                ):
-                    days = (
-                        365
-                        if subscription.billing_cycle == BillingCycle.ANNUAL
-                        else 30
-                    )
-                    subscription.current_period_end = now + timedelta(days=days)
-                    update_fields.append("current_period_end")
-                subscription.save(update_fields=update_fields)
 
         tenant.save(update_fields=["status", "updated_at"])
 

@@ -254,6 +254,98 @@ class SaaSSubscriptionAndSuperAdminGovernanceTests(TestCase):
         )
         self.assertEqual(self.client.get("/api/v1/tenant/context/").status_code, 200)
 
+    def test_super_admin_cannot_reactivate_expired_subscription_without_payment(self) -> None:
+        ensure_default_plans()
+        starter = Plan.objects.get(code="starter")
+        now = timezone.now()
+        expired_end = now - timedelta(days=5)
+
+        tenant = Tenant.objects.create(
+            name="Expired Subscription Press",
+            slug="expired-subscription-press",
+            status=TenantStatus.SUSPENDED,
+            khr_exchange_rate=Decimal("4100.00"),
+        )
+        sub = TenantSubscription.objects.create(
+            tenant=tenant,
+            plan=starter,
+            billing_cycle=BillingCycle.MONTHLY,
+            status=SubscriptionStatus.SUSPENDED,
+            current_period_start=now - timedelta(days=35),
+            current_period_end=expired_end,
+        )
+
+        login = self.client.post(
+            "/api/v1/auth/login/",
+            {
+                "email": "admin@pbms-platform.com",
+                "password": self.super_admin_pass,
+            },
+            format="json",
+        )
+        self.assertEqual(login.status_code, 200)
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {login.json()['access_token']}"
+        )
+
+        response = self.client.post(
+            f"/api/v1/super-admin/tenants/{tenant.id}/status/",
+            {"action": "ACTIVATE", "reason": "Attempted activation without renewal"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        tenant.refresh_from_db()
+        sub.refresh_from_db()
+        self.assertEqual(tenant.status, TenantStatus.SUSPENDED)
+        self.assertEqual(sub.status, SubscriptionStatus.SUSPENDED)
+        self.assertEqual(sub.current_period_end, expired_end)
+
+    def test_super_admin_cannot_reactivate_canceled_subscription_directly(self) -> None:
+        ensure_default_plans()
+        starter = Plan.objects.get(code="starter")
+        now = timezone.now()
+
+        tenant = Tenant.objects.create(
+            name="Canceled Subscription Press",
+            slug="canceled-subscription-press",
+            status=TenantStatus.SUSPENDED,
+            khr_exchange_rate=Decimal("4100.00"),
+        )
+        sub = TenantSubscription.objects.create(
+            tenant=tenant,
+            plan=starter,
+            billing_cycle=BillingCycle.MONTHLY,
+            status=SubscriptionStatus.CANCELED,
+            current_period_start=now,
+            current_period_end=now + timedelta(days=20),
+        )
+
+        login = self.client.post(
+            "/api/v1/auth/login/",
+            {
+                "email": "admin@pbms-platform.com",
+                "password": self.super_admin_pass,
+            },
+            format="json",
+        )
+        self.assertEqual(login.status_code, 200)
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {login.json()['access_token']}"
+        )
+
+        response = self.client.post(
+            f"/api/v1/super-admin/tenants/{tenant.id}/status/",
+            {"action": "ACTIVATE", "reason": "Attempted direct canceled-plan activation"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        tenant.refresh_from_db()
+        sub.refresh_from_db()
+        self.assertEqual(tenant.status, TenantStatus.SUSPENDED)
+        self.assertEqual(sub.status, SubscriptionStatus.CANCELED)
+
     def test_platform_support_has_read_only_access_and_cannot_mutate(self) -> None:
         ensure_default_plans()
         support_user = User.objects.create_user(
