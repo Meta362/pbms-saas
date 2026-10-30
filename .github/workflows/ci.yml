@@ -77,7 +77,7 @@ jobs:
           POSTGRES_PORT: 5432
         run: |
           cd backend
-          python manage.py test apps.core apps.accounts apps.subscriptions apps.operations -v 2
+          python manage.py test apps.core apps.accounts apps.subscriptions apps.operations apps.tenants -v 2
 
   frontend-tests:
     name: Frontend Tests and Build
