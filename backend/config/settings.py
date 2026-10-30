@@ -34,7 +34,7 @@ if not DEBUG:
         raise ImproperlyConfigured("DJANGO_ALLOWED_HOSTS cannot be local-only in production.")
 
     # HTTPS and Cookie Security Settings
-    SECURE_SSL_REDIRECT = True
+    SECURE_SSL_REDIRECT = os.getenv("DJANGO_SECURE_SSL_REDIRECT", "True").lower() in ("true", "1", "yes")
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SECURE_HSTS_SECONDS = 31536000

@@ -46,12 +46,13 @@ class ProductionSettingsSecurityTests(TestCase):
                 importlib.reload(config.settings)
 
     def test_valid_production_settings_pass(self):
-        with patch.dict(os.environ, {
-            "DJANGO_DEBUG": "False",
-            "DJANGO_SECRET_KEY": "a-valid-production-secret-key-that-is-long-enough",
-            "DJANGO_ALLOWED_HOSTS": "pbms.example.com"
-        }):
-            try:
+        try:
+            with patch.dict(os.environ, {
+                "DJANGO_DEBUG": "False",
+                "DJANGO_SECRET_KEY": "a-valid-production-secret-key-that-is-long-enough",
+                "DJANGO_ALLOWED_HOSTS": "pbms.example.com",
+                "DJANGO_SECURE_SSL_REDIRECT": "True"
+            }):
                 import config.settings
                 importlib.reload(config.settings)
 
@@ -63,26 +64,28 @@ class ProductionSettingsSecurityTests(TestCase):
                 self.assertTrue(config.settings.SECURE_HSTS_INCLUDE_SUBDOMAINS)
                 self.assertTrue(config.settings.SECURE_HSTS_PRELOAD)
                 self.assertEqual(config.settings.SECURE_PROXY_SSL_HEADER, ("HTTP_X_FORWARDED_PROTO", "https"))
-            except ImproperlyConfigured:
-                self.fail("Valid production settings raised ImproperlyConfigured unexpectedly.")
-            finally:
-                # Reload settings back to normal
-                importlib.reload(config.settings)
+        except ImproperlyConfigured:
+            self.fail("Valid production settings raised ImproperlyConfigured unexpectedly.")
+        finally:
+            # Reload settings back to normal
+            import config.settings
+            importlib.reload(config.settings)
 
     def test_development_settings_pass_with_defaults(self):
-        with patch.dict(os.environ, {
-            "DJANGO_DEBUG": "True",
-            "DJANGO_SECRET_KEY": "replace-with-a-secure-50-char-random-string",
-            "DJANGO_ALLOWED_HOSTS": "localhost,127.0.0.1"
-        }):
-            try:
+        try:
+            with patch.dict(os.environ, {
+                "DJANGO_DEBUG": "True",
+                "DJANGO_SECRET_KEY": "replace-with-a-secure-50-char-random-string",
+                "DJANGO_ALLOWED_HOSTS": "localhost,127.0.0.1"
+            }):
                 import config.settings
                 importlib.reload(config.settings)
-            except ImproperlyConfigured:
-                self.fail("Development settings raised ImproperlyConfigured unexpectedly.")
-            finally:
-                # Reload settings back to normal
-                importlib.reload(config.settings)
+        except ImproperlyConfigured:
+            self.fail("Development settings raised ImproperlyConfigured unexpectedly.")
+        finally:
+            # Reload settings back to normal
+            import config.settings
+            importlib.reload(config.settings)
 
 
 class SeedPbmsDemoCommandTests(TestCase):
