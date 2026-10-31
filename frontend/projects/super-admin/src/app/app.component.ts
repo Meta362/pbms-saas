@@ -1,7 +1,7 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { API_BASE_URL, PbmsI18nService, PbmsSessionClient, UserProfile, formatApiErrorMessage } from '@pbms/shared';
 
 interface SuperAdminOverview {
@@ -105,6 +105,15 @@ export class AppComponent implements OnInit {
   readonly elevatedToken = signal<string | null>(null);
   usbHardwareSerial = 'A4B27F91';
   readonly usbError = signal<string>('');
+
+  getSuperAdminHeaders(): HttpHeaders {
+    let headers = this.session.getHeaders(this.STORAGE_KEY, false);
+    const elevated = this.elevatedToken();
+    if (elevated) {
+      headers = headers.set('X-USB-Elevated-Token', elevated);
+    }
+    return headers;
+  }
 
   get isSuperAdmin(): boolean {
     return this.user()?.platform_role === 'SUPER_ADMIN';
@@ -294,7 +303,7 @@ export class AppComponent implements OnInit {
   }
 
   deleteAnnouncement(annId: string): void {
-    const headers = this.session.getHeaders(this.STORAGE_KEY, false);
+    const headers = this.getSuperAdminHeaders();
     this.http.delete(`${API_BASE_URL}/super-admin/announcements/${annId}/`, { headers }).subscribe({
       next: () => {
         this.actionBanner.set('Announcement deleted.');
@@ -309,7 +318,7 @@ export class AppComponent implements OnInit {
     this.errorMsg.set('');
     if (this.impersonatingTenantId()) return;
     this.impersonatingTenantId.set(tenant.id);
-    const headers = this.session.getHeaders(this.STORAGE_KEY, false);
+    const headers = this.getSuperAdminHeaders();
     this.http
       .post<any>(
         `${API_BASE_URL}/super-admin/tenants/${tenant.id}/impersonate/`,
@@ -319,35 +328,23 @@ export class AppComponent implements OnInit {
       .subscribe({
         next: (res) => {
           this.impersonatingTenantId.set(null);
-          localStorage.setItem(
-            'pbms_impersonation_session',
-            JSON.stringify({
-              token: res.access_token,
-              tenant_id: res.tenant_id,
-              tenant_name: res.tenant_name,
-              tenant_slug: res.tenant_slug,
-              impersonator_email: res.impersonator_email,
-              target_user_email: res.target_user_email,
-              expires_in: res.expires_in,
-              is_impersonation: true,
-            })
-          );
-          localStorage.setItem('pbms_tenant_workspace_auth_access_token', res.access_token);
-          localStorage.setItem('pbms_tenant_workspace_auth_current_tenant_id', res.tenant_id);
-          localStorage.setItem(
-            'pbms_tenant_workspace_auth_user',
-            JSON.stringify({
-              id: res.tenant_id,
-              email: res.target_user_email,
-              platform_role: 'TENANT_STAFF',
-              is_platform_staff: false,
-            })
-          );
+          const impData = {
+            token: res.access_token,
+            tenant_id: res.tenant_id,
+            tenant_name: res.tenant_name,
+            tenant_slug: res.tenant_slug,
+            impersonator_email: res.impersonator_email,
+            target_user_email: res.target_user_email,
+            expires_in: res.expires_in,
+            is_impersonation: true,
+          };
+          localStorage.setItem('pbms_impersonation_session', JSON.stringify(impData));
           this.actionBanner.set(
             `Support Mode activated for "${res.tenant_name}". Opening Tenant Workspace...`
           );
+          const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(impData))));
           setTimeout(() => {
-            window.open('http://localhost:4201', '_blank');
+            window.open(`http://localhost:4202/?impersonation=${encoded}`, '_blank');
           }, 600);
         },
         error: (err) => {
@@ -361,7 +358,7 @@ export class AppComponent implements OnInit {
     this.errorMsg.set('');
     if (this.seedingTenantId()) return;
     this.seedingTenantId.set(tenant.id);
-    const headers = this.session.getHeaders(this.STORAGE_KEY, false);
+    const headers = this.getSuperAdminHeaders();
     this.http
       .post<any>(
         `${API_BASE_URL}/super-admin/tenants/${tenant.id}/seed-presets/`,
@@ -384,7 +381,7 @@ export class AppComponent implements OnInit {
     this.errorMsg.set('');
     if (this.reconcilingPaymentId()) return;
     this.reconcilingPaymentId.set(paymentId);
-    const headers = this.session.getHeaders(this.STORAGE_KEY, false);
+    const headers = this.getSuperAdminHeaders();
     this.http
       .post(
         `${API_BASE_URL}/super-admin/payments/${paymentId}/reconcile/`,
@@ -462,7 +459,7 @@ export class AppComponent implements OnInit {
     this.errorMsg.set('');
     if (this.togglingTenantId()) return;
     this.togglingTenantId.set(tenantId);
-    const headers = this.session.getHeaders(this.STORAGE_KEY, false);
+    const headers = this.getSuperAdminHeaders();
     this.http
       .post(
         `${API_BASE_URL}/super-admin/tenants/${tenantId}/status/`,

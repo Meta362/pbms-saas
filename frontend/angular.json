@@ -18,7 +18,8 @@
             "polyfills": ["zone.js"],
             "tsConfig": "projects/public-site/tsconfig.app.json",
             "styles": ["projects/public-site/src/styles.css"],
-            "scripts": []
+            "scripts": [],
+            "assets": ["projects/super-admin/src/assets"]
           },
           "configurations": {
             "production": {
@@ -69,7 +70,8 @@
             "polyfills": ["zone.js"],
             "tsConfig": "projects/super-admin/tsconfig.app.json",
             "styles": ["projects/super-admin/src/styles.css"],
-            "scripts": []
+            "scripts": [],
+            "assets": ["projects/super-admin/src/assets"]
           },
           "configurations": {
             "production": {
@@ -120,7 +122,8 @@
             "polyfills": ["zone.js"],
             "tsConfig": "projects/tenant-workspace/tsconfig.app.json",
             "styles": ["projects/tenant-workspace/src/styles.css"],
-            "scripts": []
+            "scripts": [],
+            "assets": ["projects/super-admin/src/assets"]
           },
           "configurations": {
             "production": {

@@ -267,6 +267,40 @@ export class AppComponent implements OnInit {
   ngOnInit(): void {
     this.loadActiveAnnouncement();
 
+    // Support Impersonation URL Parameter Handshake (FE-001)
+    const urlParams = new URLSearchParams(window.location.search);
+    const impParam = urlParams.get('impersonation');
+    if (impParam) {
+      try {
+        const decoded = JSON.parse(decodeURIComponent(escape(atob(impParam))));
+        localStorage.setItem('pbms_impersonation_session', JSON.stringify(decoded));
+        sessionStorage.setItem(`${this.STORAGE_KEY}_access`, decoded.token);
+        sessionStorage.setItem(`${this.STORAGE_KEY}_tenant_id`, decoded.tenant_id);
+        sessionStorage.setItem(
+          `${this.STORAGE_KEY}_user`,
+          JSON.stringify({
+            id: decoded.tenant_id,
+            email: decoded.target_user_email,
+            platform_role: 'TENANT_STAFF',
+            is_platform_staff: false,
+            memberships: [
+              {
+                tenant_id: decoded.tenant_id,
+                tenant_name: decoded.tenant_name,
+                tenant_slug: decoded.tenant_slug,
+                role: 'TENANT_MANAGER',
+                base_currency: 'USD',
+                khr_exchange_rate: '4100.00',
+              },
+            ],
+          })
+        );
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } catch (e) {
+        console.error('Failed to parse impersonation payload from URL', e);
+      }
+    }
+
     const impersonationRaw = localStorage.getItem('pbms_impersonation_session');
     if (impersonationRaw) {
       try {

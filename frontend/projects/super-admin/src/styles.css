@@ -1,7 +1,15 @@
-﻿@tailwind base;
+@tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 body {
-  font-family: 'Inter', 'Kantumruy Pro', system-ui, -apple-system, sans-serif;
+  font-family: 'Kantumruy Pro', 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+.font-bayon {
+  font-family: 'Bayon', cursive, sans-serif;
+}
+
+.font-kantumruy {
+  font-family: 'Kantumruy Pro', 'Inter', sans-serif;
 }

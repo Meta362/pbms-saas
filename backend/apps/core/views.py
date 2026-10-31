@@ -10,7 +10,7 @@ from rest_framework.views import APIView
 
 from apps.core.models import AuditEvent, PlatformAnnouncement
 from apps.core.serializers import PlatformAnnouncementSerializer
-from apps.tenants.permissions import IsPlatformSuperAdmin
+from apps.tenants.permissions import HasVerifiedUsbLicense, IsPlatformSuperAdmin
 
 
 @api_view(["GET"])
@@ -70,7 +70,7 @@ class SuperAdminAnnouncementListCreateAPIView(APIView):
     """
     SuperAdmin endpoint to list and broadcast new system announcements.
     """
-    permission_classes = [IsAuthenticated, IsPlatformSuperAdmin]
+    permission_classes = [IsAuthenticated, IsPlatformSuperAdmin, HasVerifiedUsbLicense]
 
     def get(self, request: Request) -> Response:
         announcements = PlatformAnnouncement.objects.all().order_by("-created_at")
@@ -103,7 +103,7 @@ class SuperAdminAnnouncementDetailAPIView(APIView):
     """
     SuperAdmin endpoint to update or toggle active status of platform announcements.
     """
-    permission_classes = [IsAuthenticated, IsPlatformSuperAdmin]
+    permission_classes = [IsAuthenticated, IsPlatformSuperAdmin, HasVerifiedUsbLicense]
 
     def patch(self, request: Request, announcement_id: str) -> Response:
         announcement = get_object_or_404(PlatformAnnouncement, id=announcement_id)

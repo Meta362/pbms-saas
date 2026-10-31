@@ -174,6 +174,21 @@ class TenantSettingsAPITests(TestCase):
             {"khr_exchange_rate", "tax_rate_percent"},
         )
 
+    def test_tenant_owner_can_toggle_tax_registered_to_false(self) -> None:
+        self._auth(self.owner_a, self.tenant_a)
+        payload = {
+            "is_tax_registered": False,
+        }
+        res = self.client.patch("/api/v1/tenant/settings/", payload, format="json")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        data = res.json()
+        self.assertFalse(data["is_tax_registered"])
+        self.assertEqual(data["tax_rate_percent"], "0.00")
+
+        self.tenant_a.refresh_from_db()
+        self.assertFalse(self.tenant_a.is_tax_registered)
+        self.assertEqual(self.tenant_a.tax_rate_percent, Decimal("0.00"))
+
     def test_unauthenticated_request_is_rejected(self) -> None:
         self.client.force_authenticate(user=None)
         res = self.client.get("/api/v1/tenant/settings/")

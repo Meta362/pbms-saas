@@ -1313,5 +1313,304 @@
         </div>
       </form>
     </div>
+
+    <!-- TAB 8: SHEET IMPOSITION & CUT OPTIMIZER (PROD-001) -->
+    <div *ngIf="activeTab === 'TOOLS'" class="bg-white p-6 rounded-xl border border-slate-200 space-y-6">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+        <div>
+          <h3 class="font-bold text-base text-slate-900">
+            {{ i18n.t('ម៉ាស៊ីនគណនាប្លង់កាត់ក្រដាស និងកាត់បន្ថយកាកសំណល់ (Sheet Imposition & Cut Optimizer)', 'Sheet Imposition & 2D Guillotine Cut Optimizer') }}
+          </h3>
+          <p class="text-xs text-slate-500 mt-1">
+            {{ i18n.t('គណនាប្លង់រៀបកាត់ក្រដាសធំ (Parent Sheet) ទៅជាទំហំផលិតផលសម្រេច ជាមួយនឹងរឹមចាប់ម៉ាស៊ីនពុម្ព (Gripper Margin) និងគម្លាតកាត់ (Bleed) ដើម្បីកាត់បន្ថយការខូចខាតក្រដាស។', 'Calculate optimal 2D guillotine cut layouts from raw parent sheets into finished cut items with offset gripper allowance and bleed margins.') }}
+          </p>
+        </div>
+        <div class="flex items-center space-x-2">
+          <span class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800">
+            PROD-001 2D Vector Engine
+          </span>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <!-- Left Column: Input Form & Presets -->
+        <div class="lg:col-span-5 space-y-5">
+          <!-- Parent Sheet Specs -->
+          <div class="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-3">
+            <div class="flex items-center justify-between">
+              <label class="font-bold text-xs text-slate-800">
+                1. {{ i18n.t('ទំហំក្រដាសធំដើម (Parent Sheet mm) *', 'Raw Parent Sheet (mm) *') }}
+              </label>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <span class="text-[11px] text-slate-500">Width (W mm):</span>
+                <input
+                  type="number"
+                  name="impParentW"
+                  [(ngModel)]="impositionParentW"
+                  (change)="calculateImposition()"
+                  class="w-full mt-1 px-3 py-2 border border-slate-300 rounded-lg text-xs font-semibold bg-white"
+                  placeholder="e.g. 790"
+                />
+              </div>
+              <div>
+                <span class="text-[11px] text-slate-500">Height (H mm):</span>
+                <input
+                  type="number"
+                  name="impParentH"
+                  [(ngModel)]="impositionParentH"
+                  (change)="calculateImposition()"
+                  class="w-full mt-1 px-3 py-2 border border-slate-300 rounded-lg text-xs font-semibold bg-white"
+                  placeholder="e.g. 1090"
+                />
+              </div>
+            </div>
+            <!-- Parent Presets -->
+            <div class="flex flex-wrap gap-1.5 pt-1">
+              <button
+                type="button"
+                (click)="setImpositionPreset('790x1090')"
+                class="px-2 py-1 rounded bg-white hover:bg-slate-100 border border-slate-200 text-[10px] font-medium text-slate-700"
+              >
+                Art Card 790x1090
+              </button>
+              <button
+                type="button"
+                (click)="setImpositionPreset('650x900')"
+                class="px-2 py-1 rounded bg-white hover:bg-slate-100 border border-slate-200 text-[10px] font-medium text-slate-700"
+              >
+                Offset 650x900
+              </button>
+              <button
+                type="button"
+                (click)="setImpositionPreset('700x1000')"
+                class="px-2 py-1 rounded bg-white hover:bg-slate-100 border border-slate-200 text-[10px] font-medium text-slate-700"
+              >
+                B1 700x1000
+              </button>
+              <button
+                type="button"
+                (click)="setImpositionPreset('330x483')"
+                class="px-2 py-1 rounded bg-white hover:bg-slate-100 border border-slate-200 text-[10px] font-medium text-slate-700"
+              >
+                Digital A3+ 330x483
+              </button>
+            </div>
+          </div>
+
+          <!-- Cut Finished Specs -->
+          <div class="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-3">
+            <div class="flex items-center justify-between">
+              <label class="font-bold text-xs text-slate-800">
+                2. {{ i18n.t('ទំហំផលិតផលសម្រេច (Cut Size mm) *', 'Finished Cut Size (mm) *') }}
+              </label>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <span class="text-[11px] text-slate-500">Cut Width (mm):</span>
+                <input
+                  type="number"
+                  name="impCutW"
+                  [(ngModel)]="impositionCutW"
+                  (change)="calculateImposition()"
+                  class="w-full mt-1 px-3 py-2 border border-slate-300 rounded-lg text-xs font-semibold bg-white"
+                  placeholder="e.g. 210"
+                />
+              </div>
+              <div>
+                <span class="text-[11px] text-slate-500">Cut Height (mm):</span>
+                <input
+                  type="number"
+                  name="impCutH"
+                  [(ngModel)]="impositionCutH"
+                  (change)="calculateImposition()"
+                  class="w-full mt-1 px-3 py-2 border border-slate-300 rounded-lg text-xs font-semibold bg-white"
+                  placeholder="e.g. 297"
+                />
+              </div>
+            </div>
+            <!-- Cut Presets -->
+            <div class="flex flex-wrap gap-1.5 pt-1">
+              <button
+                type="button"
+                (click)="setCutPreset('A4')"
+                class="px-2 py-1 rounded bg-white hover:bg-slate-100 border border-slate-200 text-[10px] font-medium text-slate-700"
+              >
+                A4 (210x297)
+              </button>
+              <button
+                type="button"
+                (click)="setCutPreset('A5')"
+                class="px-2 py-1 rounded bg-white hover:bg-slate-100 border border-slate-200 text-[10px] font-medium text-slate-700"
+              >
+                A5 (148x210)
+              </button>
+              <button
+                type="button"
+                (click)="setCutPreset('A6')"
+                class="px-2 py-1 rounded bg-white hover:bg-slate-100 border border-slate-200 text-[10px] font-medium text-slate-700"
+              >
+                A6 (105x148)
+              </button>
+              <button
+                type="button"
+                (click)="setCutPreset('CARD')"
+                class="px-2 py-1 rounded bg-white hover:bg-slate-100 border border-slate-200 text-[10px] font-medium text-slate-700"
+              >
+                Card (90x54)
+              </button>
+              <button
+                type="button"
+                (click)="setCutPreset('A3')"
+                class="px-2 py-1 rounded bg-white hover:bg-slate-100 border border-slate-200 text-[10px] font-medium text-slate-700"
+              >
+                A3 (297x420)
+              </button>
+            </div>
+          </div>
+
+          <!-- Margins & Allowances -->
+          <div class="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-3">
+            <label class="font-bold text-xs text-slate-800">
+              3. {{ i18n.t('រឹមម៉ាស៊ីន និងការខូចខាត (Margins & Spoilage)', 'Press Margins & Spoilage') }}
+            </label>
+            <div class="grid grid-cols-3 gap-2">
+              <div>
+                <span class="text-[10px] text-slate-500">Margin (mm):</span>
+                <input
+                  type="number"
+                  name="impMargin"
+                  [(ngModel)]="impositionMargin"
+                  (change)="calculateImposition()"
+                  class="w-full mt-1 px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-semibold bg-white"
+                />
+              </div>
+              <div>
+                <span class="text-[10px] text-slate-500">Gripper (mm):</span>
+                <input
+                  type="number"
+                  name="impGripper"
+                  [(ngModel)]="impositionGripper"
+                  (change)="calculateImposition()"
+                  class="w-full mt-1 px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-semibold bg-white"
+                />
+              </div>
+              <div>
+                <span class="text-[10px] text-slate-500">Bleed (mm):</span>
+                <input
+                  type="number"
+                  name="impBleed"
+                  [(ngModel)]="impositionBleed"
+                  (change)="calculateImposition()"
+                  class="w-full mt-1 px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-semibold bg-white"
+                />
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-3 pt-1">
+              <div>
+                <span class="text-[11px] text-slate-500">Target Qty:</span>
+                <input
+                  type="number"
+                  name="impQty"
+                  [(ngModel)]="impositionQty"
+                  (change)="calculateImposition()"
+                  class="w-full mt-1 px-3 py-2 border border-slate-300 rounded-lg text-xs font-semibold bg-white"
+                  placeholder="5000"
+                />
+              </div>
+              <div>
+                <span class="text-[11px] text-slate-500">Spoilage (%):</span>
+                <input
+                  type="number"
+                  name="impSpoilage"
+                  [(ngModel)]="impositionSpoilage"
+                  (change)="calculateImposition()"
+                  class="w-full mt-1 px-3 py-2 border border-slate-300 rounded-lg text-xs font-semibold bg-white"
+                  placeholder="3"
+                />
+              </div>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            (click)="calculateImposition()"
+            [disabled]="calculatingImposition()"
+            class="w-full py-2.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white text-xs font-semibold shadow-sm transition flex items-center justify-center space-x-2"
+          >
+            <span>📐</span>
+            <span *ngIf="!calculatingImposition()">{{ i18n.t('គណនាប្លង់កាត់ (Calculate Imposition)', 'Calculate Imposition') }}</span>
+            <span *ngIf="calculatingImposition()">{{ i18n.t('កំពុងគណនា...', 'Calculating...') }}</span>
+          </button>
+        </div>
+
+        <!-- Right Column: Results & Interactive SVG Layout -->
+        <div class="lg:col-span-7 space-y-4">
+          <!-- Metrics Cards -->
+          <div *ngIf="impositionResult() as res" class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div class="p-3.5 rounded-xl border border-slate-200 bg-white shadow-sm">
+              <div class="text-[11px] text-slate-500 font-medium">Cuts Per Sheet</div>
+              <div class="text-xl font-bold text-emerald-700 mt-1">{{ res.cuts_per_parent_sheet }} <span class="text-xs font-normal text-slate-500">សន្លឹកកាត់</span></div>
+              <div class="text-[10px] text-slate-400 mt-0.5">Layout: {{ res.layout_orientation }}</div>
+            </div>
+            <div class="p-3.5 rounded-xl border border-slate-200 bg-white shadow-sm">
+              <div class="text-[11px] text-slate-500 font-medium">Efficiency Rate</div>
+              <div class="text-xl font-bold text-indigo-700 mt-1">{{ res.efficiency_percent }}%</div>
+              <div class="text-[10px] text-slate-400 mt-0.5">Waste: {{ res.waste_percent }}%</div>
+            </div>
+            <div class="p-3.5 rounded-xl border border-slate-200 bg-white shadow-sm">
+              <div class="text-[11px] text-slate-500 font-medium">Total Parent Sheets</div>
+              <div class="text-xl font-bold text-slate-900 mt-1">{{ res.parent_sheets_total }} <span class="text-xs font-normal text-slate-500">សន្លឹកធំ</span></div>
+              <div class="text-[10px] text-slate-400 mt-0.5">Net: {{ res.parent_sheets_net }} + Spoilage: {{ res.spoilage_sheets }}</div>
+            </div>
+          </div>
+
+          <!-- Vector SVG Visualization Container -->
+          <div class="p-4 rounded-xl border border-slate-200 bg-slate-50/80 min-h-[420px] flex flex-col justify-between">
+            <div class="flex items-center justify-between pb-2 border-b border-slate-200/80">
+              <span class="text-xs font-bold text-slate-700">
+                {{ i18n.t('ប្លង់គំនូសបំព្រួញពិតប្រាកដ (Live Vector SVG Layout)', 'Live Proportional Vector Layout') }}
+              </span>
+              <span *ngIf="impositionResult() as res" class="text-[10px] text-slate-500 font-mono">
+                Sheet: {{ res.parent_sheet?.width_mm }} x {{ res.parent_sheet?.height_mm }} mm
+              </span>
+            </div>
+
+            <!-- SVG Render -->
+            <div
+              *ngIf="impositionResult()?.svg_layout"
+              class="w-full flex items-center justify-center my-3 overflow-auto max-h-[460px] p-2 bg-white rounded-lg border border-slate-200 shadow-inner"
+              [innerHTML]="getSanitizedSvg(impositionResult()?.svg_layout)"
+            ></div>
+
+            <div *ngIf="!impositionResult()?.svg_layout && !calculatingImposition()" class="flex-1 flex flex-col items-center justify-center text-slate-400 py-16">
+              <span class="text-3xl mb-2">📐</span>
+              <span class="text-xs">{{ i18n.t('ចុចប៊ូតុង "គណនាប្លង់កាត់" ដើម្បីមើលរូបប្លង់ក្រដាស', 'Click Calculate to view proportional sheet diagram.') }}</span>
+            </div>
+
+            <div *ngIf="calculatingImposition()" class="flex-1 flex flex-col items-center justify-center text-slate-400 py-16">
+              <span class="text-xs animate-pulse">{{ i18n.t('កំពុងគណនាប្លង់កាត់...', 'Calculating 2D imposition layout...') }}</span>
+            </div>
+
+            <!-- Legend -->
+            <div class="flex flex-wrap items-center gap-4 text-[11px] text-slate-500 pt-2 border-t border-slate-200/80">
+              <div class="flex items-center space-x-1.5">
+                <span class="w-3 h-3 rounded bg-blue-100 border border-blue-400"></span>
+                <span>Cut Item</span>
+              </div>
+              <div class="flex items-center space-x-1.5">
+                <span class="w-3 h-3 rounded bg-rose-50 border border-rose-300 border-dashed"></span>
+                <span>Gripper Allowance</span>
+              </div>
+              <div class="flex items-center space-x-1.5">
+                <span class="w-3 h-3 rounded bg-slate-200 border border-slate-400"></span>
+                <span>Parent Sheet Edge</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </div>

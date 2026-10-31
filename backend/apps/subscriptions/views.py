@@ -1,3 +1,4 @@
+import uuid
 from datetime import timedelta
 from decimal import Decimal
 from django.contrib.auth import get_user_model
@@ -29,6 +30,7 @@ from apps.subscriptions.serializers import (
 )
 from apps.tenants.models import Tenant, TenantMembership, TenantRole, TenantStatus
 from apps.tenants.permissions import (
+    HasVerifiedUsbLicense,
     IsPlatformSuperAdmin,
     IsPlatformSuperAdminOrSupportReadOnly,
 )
@@ -349,7 +351,7 @@ class SuperAdminPaymentReconcileAPIView(APIView):
     Tenant + TenantSubscription lifecycle atomically.
     """
 
-    permission_classes = [IsAuthenticated, IsPlatformSuperAdmin]
+    permission_classes = [IsAuthenticated, IsPlatformSuperAdmin, HasVerifiedUsbLicense]
 
     @transaction.atomic
     def post(self, request: Request, payment_id: str) -> Response:
@@ -425,7 +427,7 @@ class SuperAdminPaymentReconcileAPIView(APIView):
 class SuperAdminTenantStatusAPIView(APIView):
     """Frontend A: Suspend or Reactivate a tenant with mandatory audit logging."""
 
-    permission_classes = [IsAuthenticated, IsPlatformSuperAdmin]
+    permission_classes = [IsAuthenticated, IsPlatformSuperAdmin, HasVerifiedUsbLicense]
 
     @transaction.atomic
     def post(self, request: Request, tenant_id: str) -> Response:
@@ -576,7 +578,7 @@ class SuperAdminUsbLicenseRevokeAPIView(APIView):
     Frontend A: SuperAdmin revokes a compromised or lost USB hardware license key.
     """
 
-    permission_classes = [IsAuthenticated, IsPlatformSuperAdmin]
+    permission_classes = [IsAuthenticated, IsPlatformSuperAdmin, HasVerifiedUsbLicense]
 
     def post(self, request: Request) -> Response:
         from apps.core.usb_licensing import revoke_usb_license
@@ -608,7 +610,7 @@ class SuperAdminTenantImpersonateAPIView(APIView):
     Logs SUPERADMIN_TENANT_IMPERSONATED event.
     """
 
-    permission_classes = [IsAuthenticated, IsPlatformSuperAdmin]
+    permission_classes = [IsAuthenticated, IsPlatformSuperAdmin, HasVerifiedUsbLicense]
 
     def post(self, request: Request, tenant_id: str) -> Response:
         from apps.accounts.jwt_service import issue_impersonation_token
@@ -632,7 +634,7 @@ class SuperAdminTenantSeedPresetsAPIView(APIView):
     Seeds standard paper stocks, wide-format flex banner, waterproof sticker, and default customer.
     """
 
-    permission_classes = [IsAuthenticated, IsPlatformSuperAdmin]
+    permission_classes = [IsAuthenticated, IsPlatformSuperAdmin, HasVerifiedUsbLicense]
 
     def post(self, request: Request, tenant_id: str) -> Response:
         from apps.operations.preset_service import seed_tenant_master_presets
