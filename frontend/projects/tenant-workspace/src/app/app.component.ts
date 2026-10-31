@@ -42,6 +42,13 @@ export class AppComponent implements OnInit {
   readonly activeTenantName = signal<string>('');
   email = '';
   password = '';
+  readonly showPassword = signal<boolean>(false);
+
+  quickLogin(demoEmail: string, demoPass: string): void {
+    this.email = demoEmail;
+    this.password = demoPass;
+    this.login();
+  }
 
   activeTab: WorkspaceTab = 'DASHBOARD';
   readonly stages = ['PENDING', 'PRE_PRESS', 'PRINTING', 'FINISHING', 'QC', 'COMPLETED'];

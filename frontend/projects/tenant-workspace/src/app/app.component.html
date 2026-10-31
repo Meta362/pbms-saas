@@ -76,49 +76,152 @@
     </div>
   </header>
 
-  <!-- Login Form if unauthenticated -->
-  <main *ngIf="!user()" class="flex-1 flex items-center justify-center p-6">
-    <div class="w-full max-w-md bg-white border border-slate-200 rounded-2xl p-8 shadow-sm">
-      <h2 class="text-xl font-bold text-slate-900 mb-2">
-        {{ i18n.t('ចូលប្រើប្រាស់ប្រព័ន្ធរោងពុម្ព (Tenant Workspace)', 'Printing Business Staff Login') }}
-      </h2>
-      <p class="text-xs text-slate-500 mb-6">
-        {{ i18n.t('សូមបញ្ចូលអ៊ីមែល និងពាក្យសម្ងាត់របស់អ្នកដើម្បីចូលប្រើប្រាស់។', 'Enter your staff credentials to sign in to your workspace.') }}
-      </p>
+  <!-- Login Form if unauthenticated (2026 Modern Print SaaS Aesthetic) -->
+  <main *ngIf="!user()" class="flex-1 relative flex items-center justify-center p-4 sm:p-8 bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-950 overflow-hidden">
+    <!-- Ambient CMYK Glow Effects -->
+    <div class="absolute -top-32 -left-32 w-96 h-96 bg-cyan-500/15 rounded-full blur-3xl pointer-events-none"></div>
+    <div class="absolute -bottom-32 -right-32 w-96 h-96 bg-rose-500/15 rounded-full blur-3xl pointer-events-none"></div>
+    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-emerald-500/10 rounded-full blur-3xl pointer-events-none"></div>
 
-      <div *ngIf="errorMsg()" class="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs">
-        {{ errorMsg() }}
+    <div class="w-full max-w-lg relative z-10">
+      <!-- Glassmorphism Main Card -->
+      <div class="bg-slate-900/90 backdrop-blur-2xl border border-slate-700/60 rounded-3xl p-6 sm:p-9 shadow-2xl relative overflow-hidden">
+        <!-- CMYK Print Registration Strip on Top -->
+        <div class="absolute top-0 left-0 right-0 h-1.5 flex">
+          <div class="flex-1 bg-cyan-400"></div>
+          <div class="flex-1 bg-fuchsia-500"></div>
+          <div class="flex-1 bg-yellow-400"></div>
+          <div class="flex-1 bg-slate-950"></div>
+        </div>
+
+        <!-- Header / Brand Section -->
+        <div class="flex items-center justify-between mb-6 pt-2">
+          <div class="flex items-center space-x-3">
+            <div class="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-600 via-teal-500 to-cyan-400 flex items-center justify-center text-slate-950 font-black text-xl shadow-lg shadow-emerald-500/25">
+              🖨️
+            </div>
+            <div>
+              <div class="flex items-center space-x-2">
+                <span class="font-extrabold text-lg sm:text-xl text-white tracking-tight">PBMS PrintCloud</span>
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 uppercase">
+                  2026 SaaS
+                </span>
+              </div>
+              <p class="text-xs text-slate-400 font-medium">
+                {{ i18n.t('ប្រព័ន្ធប្រតិបត្តិការរោងពុម្ពជំនាន់ថ្មី • Cloud ERP', 'Next-Gen Print Operations & Production ERP') }}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            (click)="i18n.toggleLanguage()"
+            class="px-2.5 py-1 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-xs font-medium text-slate-300 transition"
+          >
+            {{ i18n.lang() === 'km' ? '🌐 English' : '🌐 ភាសាខ្មែរ' }}
+          </button>
+        </div>
+
+        <!-- One-Click Instant Demo Credentials Badges -->
+        <div class="mb-6 p-4 rounded-2xl bg-slate-950/70 border border-slate-800/80">
+          <div class="flex items-center justify-between mb-2.5">
+            <span class="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+              <span>⚡</span> {{ i18n.t('ចុចចូលសាកល្បងភ្លាមៗ (Quick Demo Access):', 'Instant Demo Logins (1-Click Fill & Sign In):') }}
+            </span>
+            <span class="text-[10px] text-emerald-400 font-mono">Password-2026!</span>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <button
+              type="button"
+              (click)="quickLogin('owner@angkorprint.com', 'Password-2026!')"
+              class="group p-2.5 rounded-xl bg-slate-900/90 hover:bg-emerald-950/60 border border-slate-800 hover:border-emerald-500/50 text-left transition flex items-center space-x-2.5"
+            >
+              <span class="text-base">👑</span>
+              <div class="truncate">
+                <div class="text-xs font-bold text-white group-hover:text-emerald-300 transition">រោងពុម្ពអង្គរ (Active)</div>
+                <div class="text-[10px] text-slate-400 truncate">owner&#64;angkorprint.com</div>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              (click)="quickLogin('dara@mekongoffset.com', 'Password-2026!')"
+              class="group p-2.5 rounded-xl bg-slate-900/90 hover:bg-indigo-950/60 border border-slate-800 hover:border-indigo-500/50 text-left transition flex items-center space-x-2.5"
+            >
+              <span class="text-base">🏭</span>
+              <div class="truncate">
+                <div class="text-xs font-bold text-white group-hover:text-indigo-300 transition">រោងពុម្ពមេគង្គ (Offset)</div>
+                <div class="text-[10px] text-slate-400 truncate">dara&#64;mekongoffset.com</div>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <div *ngIf="errorMsg()" class="mb-5 p-3.5 rounded-2xl bg-rose-950/70 border border-rose-700/60 text-rose-200 text-xs flex items-center gap-2">
+          <span>⚠️</span>
+          <span>{{ errorMsg() }}</span>
+        </div>
+
+        <!-- Custom Manual Form -->
+        <form (ngSubmit)="login()" class="space-y-4">
+          <div>
+            <label class="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center gap-1.5">
+              <span>✉️</span> {{ i18n.t('អ៊ីមែលគណនី (Email Address)', 'Staff Email Address') }}
+            </label>
+            <input
+              type="email"
+              name="email"
+              [(ngModel)]="email"
+              required
+              placeholder="e.g. owner@angkorprint.com"
+              class="w-full rounded-xl bg-slate-950/80 border border-slate-700 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 px-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition"
+            />
+          </div>
+
+          <div>
+            <div class="flex items-center justify-between mb-1.5">
+              <label class="block text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                <span>🔒</span> {{ i18n.t('ពាក្យសម្ងាត់ (Password)', 'Security Password') }}
+              </label>
+              <button
+                type="button"
+                (click)="showPassword.set(!showPassword())"
+                class="text-[11px] text-slate-400 hover:text-emerald-400 transition"
+              >
+                {{ showPassword() ? '🙈 Hide' : '👁️ Show' }}
+              </button>
+            </div>
+            <input
+              [type]="showPassword() ? 'text' : 'password'"
+              name="password"
+              [(ngModel)]="password"
+              required
+              placeholder="••••••••••••"
+              class="w-full rounded-xl bg-slate-950/80 border border-slate-700 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 px-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition font-mono"
+            />
+          </div>
+
+          <button
+            type="submit"
+            class="w-full mt-2 py-3 px-5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-sm shadow-lg shadow-emerald-600/30 hover:shadow-emerald-600/50 transition-all flex items-center justify-center gap-2"
+          >
+            <span>{{ i18n.t('ចូលប្រព័ន្ធប្រតិបត្តិការ (Launch Workspace)', 'Sign In to Workspace') }}</span>
+            <span>➜</span>
+          </button>
+        </form>
+
+        <!-- Modern Trust Badges Footer -->
+        <div class="mt-6 pt-5 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
+          <span class="flex items-center gap-1">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            PostgreSQL Ledger Active
+          </span>
+          <span>Argon2id Hardened</span>
+          <span>NBC Bakong KHQR</span>
+          <span>GDT Dual Tax</span>
+        </div>
       </div>
-
-      <form (ngSubmit)="login()" class="space-y-4">
-        <div>
-          <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Email</label>
-          <input
-            type="email"
-            name="email"
-            [(ngModel)]="email"
-            required
-            class="w-full rounded-lg border border-slate-300 px-3.5 py-2 text-sm"
-          />
-        </div>
-        <div>
-          <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">Password</label>
-          <input
-            type="password"
-            name="password"
-            [(ngModel)]="password"
-            required
-            class="w-full rounded-lg border border-slate-300 px-3.5 py-2 text-sm"
-          />
-        </div>
-        <button
-          type="submit"
-          class="w-full py-2.5 px-4 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-semibold text-sm transition"
-        >
-          {{ i18n.t('ចូលប្រព័ន្ធប្រតិបត្តិការ', 'Sign In to Workspace') }}
-        </button>
-      </form>
     </div>
+  </main>
   
     <!-- MODAL 1: NBC BAKONG KHQR PAYMENT (CAM-001) -->
     <div *ngIf="activeKhqrModal()" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
@@ -346,8 +449,6 @@
         </div>
       </div>
     </div>
-
-  </main>
 
   <!-- Authenticated Tenant Workspace -->
   <div *ngIf="user()" class="max-w-7xl mx-auto w-full px-4 sm:px-6 py-6 flex-1 space-y-6">

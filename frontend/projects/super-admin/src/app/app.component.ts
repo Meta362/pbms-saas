@@ -74,6 +74,13 @@ export class AppComponent implements OnInit {
   readonly user = signal<UserProfile | null>(null);
   email = '';
   password = '';
+  readonly showPassword = signal<boolean>(false);
+
+  quickLogin(demoEmail: string, demoPass: string): void {
+    this.email = demoEmail;
+    this.password = demoPass;
+    this.login();
+  }
   readonly errorMsg = signal<string>('');
   readonly actionBanner = signal<string>('');
   readonly reconcilingPaymentId = signal<string | null>(null);

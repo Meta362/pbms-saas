@@ -35,48 +35,131 @@
     </div>
   </header>
 
-  <!-- Login Screen if not authenticated -->
-  <main *ngIf="!user()" class="flex-1 flex items-center justify-center p-6">
-    <div class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-xl">
-      <h2 class="text-xl font-bold text-white mb-2">
-        {{ i18n.t('ចូលប្រើប្រាស់ Super Admin Portal', 'Super Admin Portal Login') }}
-      </h2>
-      <p class="text-xs text-slate-400 mb-6">
-        {{ i18n.t('សូមបញ្ចូលអ៊ីមែល និងពាក្យសម្ងាត់របស់អ្នកដើម្បីចូលប្រើប្រាស់។', 'Enter your administrative credentials to sign in.') }}
-      </p>
+  <!-- Login Screen if not authenticated (2026 Cyber Governance Console) -->
+  <main *ngIf="!user()" class="flex-1 relative flex items-center justify-center p-4 sm:p-8 bg-gradient-to-br from-slate-950 via-slate-900 to-rose-950/40 overflow-hidden">
+    <!-- Ambient Rose/Indigo Glow Effects -->
+    <div class="absolute -top-32 -right-32 w-96 h-96 bg-rose-600/15 rounded-full blur-3xl pointer-events-none"></div>
+    <div class="absolute -bottom-32 -left-32 w-96 h-96 bg-indigo-600/15 rounded-full blur-3xl pointer-events-none"></div>
 
-      <div *ngIf="errorMsg()" class="mb-4 p-3 rounded-lg bg-rose-950/80 border border-rose-700 text-rose-200 text-xs">
-        {{ errorMsg() }}
+    <div class="w-full max-w-lg relative z-10">
+      <div class="bg-slate-900/90 backdrop-blur-2xl border border-slate-800 rounded-3xl p-6 sm:p-9 shadow-2xl relative overflow-hidden">
+        <!-- Top Security Stripe -->
+        <div class="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-rose-600 via-amber-500 to-indigo-600"></div>
+
+        <!-- Brand / Header -->
+        <div class="flex items-center justify-between mb-6 pt-2">
+          <div class="flex items-center space-x-3">
+            <div class="w-12 h-12 rounded-2xl bg-gradient-to-tr from-rose-600 to-indigo-600 flex items-center justify-center text-white font-black text-xl shadow-lg shadow-rose-600/30">
+              🛡️
+            </div>
+            <div>
+              <div class="flex items-center space-x-2">
+                <span class="font-extrabold text-lg sm:text-xl text-white tracking-tight">SuperAdmin Plane</span>
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider bg-rose-500/20 text-rose-400 border border-rose-500/30 uppercase">
+                  Root Console
+                </span>
+              </div>
+              <p class="text-xs text-slate-400 font-medium">
+                {{ i18n.t('មជ្ឈមណ្ឌលគ្រប់គ្រងវេទិកា និងសុវត្ថិភាព • Platform Brain', 'Central SaaS Governance, Tenants & Licensing Control') }}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            (click)="i18n.toggleLanguage()"
+            class="px-2.5 py-1 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-xs font-medium text-slate-300 transition"
+          >
+            {{ i18n.lang() === 'km' ? '🌐 English' : '🌐 ភាសាខ្មែរ' }}
+          </button>
+        </div>
+
+        <!-- One-Click Instant Demo Credentials Badge -->
+        <div class="mb-6 p-4 rounded-2xl bg-slate-950/80 border border-slate-800/90">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+              <span>⚡</span> {{ i18n.t('ចុចចូលសាកល្បងភ្លាមៗ (Quick Root Access):', 'Instant Root Demo Login:') }}
+            </span>
+            <span class="text-[10px] text-rose-400 font-mono">Password-2026!</span>
+          </div>
+          <button
+            type="button"
+            (click)="quickLogin('admin@pbms.local', 'Password-2026!')"
+            class="w-full group p-3 rounded-xl bg-slate-900/90 hover:bg-rose-950/40 border border-slate-800 hover:border-rose-500/50 text-left transition flex items-center justify-between"
+          >
+            <div class="flex items-center space-x-3">
+              <span class="text-lg">👑</span>
+              <div>
+                <div class="text-xs font-bold text-white group-hover:text-rose-300 transition">Platform Super Admin</div>
+                <div class="text-[10px] text-slate-400">admin&#64;pbms.local</div>
+              </div>
+            </div>
+            <span class="text-xs text-rose-400 font-semibold group-hover:translate-x-1 transition">1-Click Sign In ➜</span>
+          </button>
+        </div>
+
+        <div *ngIf="errorMsg()" class="mb-5 p-3.5 rounded-2xl bg-rose-950/80 border border-rose-700 text-rose-200 text-xs flex items-center gap-2">
+          <span>⚠️</span>
+          <span>{{ errorMsg() }}</span>
+        </div>
+
+        <!-- Manual Login Form -->
+        <form (ngSubmit)="login()" class="space-y-4">
+          <div>
+            <label class="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center gap-1.5">
+              <span>✉️</span> {{ i18n.t('អ៊ីមែលអ្នកគ្រប់គ្រង (Admin Email)', 'Platform Operator Email') }}
+            </label>
+            <input
+              type="email"
+              name="email"
+              [(ngModel)]="email"
+              required
+              placeholder="e.g. admin@pbms.local"
+              class="w-full rounded-xl bg-slate-950/90 border border-slate-700 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20 px-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition"
+            />
+          </div>
+
+          <div>
+            <div class="flex items-center justify-between mb-1.5">
+              <label class="block text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                <span>🔒</span> {{ i18n.t('ពាក្យសម្ងាត់ (Argon2id)', 'Password (Argon2id)') }}
+              </label>
+              <button
+                type="button"
+                (click)="showPassword.set(!showPassword())"
+                class="text-[11px] text-slate-400 hover:text-rose-400 transition"
+              >
+                {{ showPassword() ? '🙈 Hide' : '👁️ Show' }}
+              </button>
+            </div>
+            <input
+              [type]="showPassword() ? 'text' : 'password'"
+              name="password"
+              [(ngModel)]="password"
+              required
+              placeholder="••••••••••••"
+              class="w-full rounded-xl bg-slate-950/90 border border-slate-700 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20 px-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition font-mono"
+            />
+          </div>
+
+          <button
+            type="submit"
+            class="w-full mt-2 py-3 px-5 rounded-2xl bg-gradient-to-r from-rose-600 via-rose-700 to-indigo-700 hover:from-rose-500 hover:to-indigo-600 text-white font-bold text-sm shadow-lg shadow-rose-600/30 hover:shadow-rose-600/50 transition-all flex items-center justify-center gap-2"
+          >
+            <span>{{ i18n.t('ចូលគ្រប់គ្រងប្រព័ន្ធ (Authenticate)', 'Authenticate as Super Admin') }}</span>
+            <span>➜</span>
+          </button>
+        </form>
+
+        <!-- Compliance Footer -->
+        <div class="mt-6 pt-5 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
+          <span class="flex items-center gap-1">
+            <span class="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
+            Hardware Dongle / TOTP Ready
+          </span>
+          <span>Zero-Trust RBAC</span>
+          <span>Immutable Audit Logs</span>
+        </div>
       </div>
-
-      <form (ngSubmit)="login()" class="space-y-4">
-        <div>
-          <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Email</label>
-          <input
-            type="email"
-            name="email"
-            [(ngModel)]="email"
-            required
-            class="w-full rounded-lg bg-slate-950 border border-slate-700 px-3.5 py-2 text-sm text-white focus:border-rose-500 focus:outline-none"
-          />
-        </div>
-        <div>
-          <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Password (Argon2id)</label>
-          <input
-            type="password"
-            name="password"
-            [(ngModel)]="password"
-            required
-            class="w-full rounded-lg bg-slate-950 border border-slate-700 px-3.5 py-2 text-sm text-white focus:border-rose-500 focus:outline-none"
-          />
-        </div>
-        <button
-          type="submit"
-          class="w-full py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-semibold text-sm transition"
-        >
-          {{ i18n.t('ចូលគ្រប់គ្រងប្រព័ន្ធ (Authenticate)', 'Sign In as Super Admin') }}
-        </button>
-      </form>
     </div>
   </main>
 
