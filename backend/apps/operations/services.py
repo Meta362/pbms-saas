@@ -73,7 +73,10 @@ def calculate_multi_item_quotation_totals(
         raise ValidationError("Discount cannot exceed quotation subtotal.")
 
     taxable = accumulated_subtotal - discount_usd
-    tax_amount = round_usd(taxable * (tenant.tax_rate_percent / Decimal("100.00")))
+    if not getattr(tenant, "is_tax_registered", True):
+        tax_amount = Decimal("0.00")
+    else:
+        tax_amount = round_usd(taxable * (tenant.tax_rate_percent / Decimal("100.00")))
     total_usd = round_usd(taxable + tax_amount)
     total_khr = round_khr_nearest_100(total_usd, tenant.khr_exchange_rate)
 
@@ -105,7 +108,10 @@ def calculate_quotation_totals(
         raise ValidationError("Discount cannot exceed quotation subtotal.")
 
     taxable = subtotal - discount_usd
-    tax_amount = round_usd(taxable * (tenant.tax_rate_percent / Decimal("100.00")))
+    if not getattr(tenant, "is_tax_registered", True):
+        tax_amount = Decimal("0.00")
+    else:
+        tax_amount = round_usd(taxable * (tenant.tax_rate_percent / Decimal("100.00")))
     total_usd = round_usd(taxable + tax_amount)
     total_khr = round_khr_nearest_100(total_usd, tenant.khr_exchange_rate)
 

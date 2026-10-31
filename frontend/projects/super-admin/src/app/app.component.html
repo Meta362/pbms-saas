@@ -267,11 +267,22 @@
                     *ngIf="t.status === 'ACTIVE'"
                     type="button"
                     [disabled]="seedingTenantId() === t.id"
-                    (click)="seedPresets(t)"
-                    class="px-2.5 py-1.5 rounded-lg bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-700 text-xs font-semibold"
-                    [title]="i18n.t('បញ្ចូលទិន្នន័យក្រដាសស្តង់ដារ និង Sticker សម្រាប់ហាងនេះ', 'Seed standard Cambodian paper sizes and stickers')"
+                    (click)="seedPresets(t, 'DIGITAL')"
+                    class="px-2 py-1.5 rounded-lg bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-700 text-xs font-semibold"
+                    [title]="i18n.t('បញ្ចូលទិន្នន័យ Digital Print (A4, A3+, Sticker, Trodat)', 'Seed Digital Quick-Print Presets')"
                   >
-                    <span *ngIf="seedingTenantId() !== t.id">🌱 Seed</span>
+                    <span *ngIf="seedingTenantId() !== t.id">🌱 Digital</span>
+                    <span *ngIf="seedingTenantId() === t.id">...</span>
+                  </button>
+                  <button
+                    *ngIf="t.status === 'ACTIVE'"
+                    type="button"
+                    [disabled]="seedingTenantId() === t.id"
+                    (click)="seedPresets(t, 'OFFSET')"
+                    class="px-2 py-1.5 rounded-lg bg-indigo-950 hover:bg-indigo-900 text-indigo-300 border border-indigo-700 text-xs font-semibold"
+                    [title]="i18n.t('បញ្ចូលទិន្នន័យ Commercial Offset (790x1090, 650x900, Flex Vinyl)', 'Seed Commercial Offset Presets')"
+                  >
+                    <span *ngIf="seedingTenantId() !== t.id">🏭 Offset</span>
                     <span *ngIf="seedingTenantId() === t.id">...</span>
                   </button>
                   <button

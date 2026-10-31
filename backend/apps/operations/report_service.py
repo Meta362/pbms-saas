@@ -29,8 +29,9 @@ def generate_gdt_vat_sales_journal(
         .order_by("created_at", "invoice_number")
     )
 
+    is_tax_registered = getattr(tenant, "is_tax_registered", True)
     rate = tenant.khr_exchange_rate or Decimal("4100.00")
-    tax_rate = tenant.tax_rate_percent or Decimal("10.00")
+    tax_rate = (tenant.tax_rate_percent or Decimal("10.00")) if is_tax_registered else Decimal("0.00")
     vat_multiplier = tax_rate / Decimal("100.00")
 
     total_sales_usd = Decimal("0.00")
@@ -87,6 +88,8 @@ def generate_gdt_vat_sales_journal(
     return {
         "tenant_id": str(tenant.id),
         "tenant_name": tenant.name,
+        "is_tax_registered": is_tax_registered,
+        "tax_id_number": getattr(tenant, "tax_id_number", ""),
         "report_period": f"{target_year:04d}-{target_month:02d}",
         "khr_exchange_rate": str(rate),
         "tax_rate_percent": str(tax_rate),
@@ -112,6 +115,12 @@ def generate_vat_sales_journal_csv(journal: Dict[str, Any]) -> str:
     writer = csv.writer(output)
     writer.writerow(["GDT VAT SALES JOURNAL / សៀវភៅកំណត់ហេតុលក់"])
     writer.writerow(["Taxpayer / ឈ្មោះសហគ្រាស", journal["tenant_name"]])
+    writer.writerow([
+        "Tax Regime / របបសារពើពន្ធ",
+        "អ្នកជាប់ពន្ធរបបស្វ័យប្រកាស (VAT Registered)" if journal.get("is_tax_registered") else "អាជីវកម្មខ្នាតតូច/គ្រួសារ (Non-VAT Family Business)"
+    ])
+    if journal.get("tax_id_number"):
+        writer.writerow(["Tax ID (TIN) / លេខអត្តសញ្ញាណកម្ម", journal["tax_id_number"]])
     writer.writerow(["Tax Period / ការិយបរិច្ឆេទ", journal["report_period"]])
     writer.writerow(["Exchange Rate / អត្រាប្តូរប្រាក់", f"1 USD = {journal['khr_exchange_rate']} KHR"])
     writer.writerow(["VAT Rate / អត្រាអាករ", f"{journal['tax_rate_percent']}%"])

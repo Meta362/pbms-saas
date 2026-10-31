@@ -36,7 +36,7 @@ class SaaSSubscriptionAndSuperAdminGovernanceTests(TestCase):
         # 1. Frontend C: Fetch public plans
         plans_res = self.client.get("/api/v1/public/plans/")
         self.assertEqual(plans_res.status_code, 200)
-        self.assertEqual(len(plans_res.json()), 3)
+        self.assertEqual(len(plans_res.json()), 4)
 
         # 2. Frontend C: Register new printing business tenant with idempotency key
         payload = {

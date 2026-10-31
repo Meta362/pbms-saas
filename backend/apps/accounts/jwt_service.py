@@ -69,6 +69,19 @@ def create_session_and_issue_tokens(
     access_jti = str(uuid.uuid4())
     refresh_jti = str(uuid.uuid4())
 
+    # Enforce device limit: kick out oldest active session if active devices exceed threshold (e.g. 2 for solo accounts)
+    max_devices = 2 if not user.is_platform_staff else 5
+    active_sessions = AuthSession.objects.filter(
+        user=user,
+        is_revoked=False,
+        expires_at__gt=now,
+    ).order_by("created_at")
+    if active_sessions.count() >= max_devices:
+        excess = active_sessions.count() - max_devices + 1
+        for old_s in active_sessions[:excess]:
+            old_s.is_revoked = True
+            old_s.save(update_fields=["is_revoked"])
+
     session = AuthSession.objects.create(
         user=user,
         current_refresh_jti_hash=hash_jti(refresh_jti),

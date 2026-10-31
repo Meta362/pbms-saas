@@ -350,7 +350,7 @@ export class AppComponent implements OnInit {
       });
   }
 
-  seedPresets(tenant: SuperAdminTenantItem): void {
+  seedPresets(tenant: SuperAdminTenantItem, packType: 'DIGITAL' | 'OFFSET' | 'ALL' = 'ALL'): void {
     this.errorMsg.set('');
     if (this.seedingTenantId()) return;
     this.seedingTenantId.set(tenant.id);
@@ -358,7 +358,7 @@ export class AppComponent implements OnInit {
     this.http
       .post<any>(
         `${API_BASE_URL}/super-admin/tenants/${tenant.id}/seed-presets/`,
-        {},
+        { pack_type: packType },
         { headers }
       )
       .subscribe({

@@ -138,6 +138,8 @@ export class AppComponent implements OnInit {
   // Form bindings - Settings
   settingsKhrRate = '';
   settingsTaxRate = '';
+  settingsIsTaxRegistered = true;
+  settingsTaxIdNumber = '';
   readonly loadingSettings = signal<boolean>(false);
   readonly submittingSettings = signal<boolean>(false);
   readonly settingsError = signal<string>('');
@@ -1011,6 +1013,8 @@ export class AppComponent implements OnInit {
         this.settings.set(s);
         this.settingsKhrRate = s.khr_exchange_rate;
         this.settingsTaxRate = s.tax_rate_percent;
+        this.settingsIsTaxRegistered = s.is_tax_registered ?? true;
+        this.settingsTaxIdNumber = s.tax_id_number || '';
       },
       error: (err) => {
         this.loadingSettings.set(false);
@@ -1038,7 +1042,9 @@ export class AppComponent implements OnInit {
     const headers = this.session.getHeaders(this.STORAGE_KEY, true);
     const payload = {
       khr_exchange_rate: this.settingsKhrRate,
-      tax_rate_percent: this.settingsTaxRate,
+      tax_rate_percent: this.settingsIsTaxRegistered ? this.settingsTaxRate : '0.00',
+      is_tax_registered: this.settingsIsTaxRegistered,
+      tax_id_number: this.settingsTaxIdNumber,
     };
 
     this.http.patch<TenantSettings>(`${API_BASE_URL}/tenant/settings/`, payload, { headers }).subscribe({
@@ -1047,6 +1053,8 @@ export class AppComponent implements OnInit {
         this.settings.set(updated);
         this.settingsKhrRate = updated.khr_exchange_rate;
         this.settingsTaxRate = updated.tax_rate_percent;
+        this.settingsIsTaxRegistered = updated.is_tax_registered;
+        this.settingsTaxIdNumber = updated.tax_id_number;
 
         const ctx = this.tenantContext();
         if (ctx) {
@@ -1054,6 +1062,8 @@ export class AppComponent implements OnInit {
             ...ctx,
             khr_exchange_rate: updated.khr_exchange_rate,
             tax_rate_percent: updated.tax_rate_percent,
+            is_tax_registered: updated.is_tax_registered,
+            tax_id_number: updated.tax_id_number,
           });
         }
 

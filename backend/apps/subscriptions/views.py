@@ -37,8 +37,21 @@ User = get_user_model()
 
 
 def ensure_default_plans() -> None:
-    """Seeds default SaaS plans if none exist yet."""
-    if Plan.objects.exists():
+    """Seeds default SaaS plans if none exist yet, ensuring Solo Family plan exists."""
+    if not Plan.objects.filter(code="solo").exists():
+        Plan.objects.create(
+            code="solo",
+            name_en="Solo / Family Print Shop",
+            name_km="កញ្ចប់គ្រួសារ / អាជីវកម្មទោល",
+            description_en="Simple order and receipt generator for family-run print shops and solo operators.",
+            description_km="មុខងារគ្រប់គ្រងការងារ និងវិក្កយបត្រធម្មតា 0% VAT សម្រាប់ហាងគ្រួសារ ឬប្រតិបត្តិករទោល។",
+            monthly_price_usd=Decimal("10.00"),
+            annual_price_usd=Decimal("100.00"),
+            max_staff_users=2,
+            max_orders_per_month=100,
+            sort_order=0,
+        )
+    if Plan.objects.filter(code="starter").exists():
         return
     Plan.objects.bulk_create(
         [
@@ -624,7 +637,12 @@ class SuperAdminTenantSeedPresetsAPIView(APIView):
     def post(self, request: Request, tenant_id: str) -> Response:
         from apps.operations.preset_service import seed_tenant_master_presets
 
+        pack_type = request.data.get("pack_type") or request.query_params.get("pack_type") or "ALL"
         tenant = get_object_or_404(Tenant, id=tenant_id)
-        result = seed_tenant_master_presets(tenant=tenant, actor_user=request.user)
+        result = seed_tenant_master_presets(
+            tenant=tenant,
+            actor_user=request.user,
+            pack_type=pack_type,
+        )
         return Response(result, status=status.HTTP_200_OK)
 
