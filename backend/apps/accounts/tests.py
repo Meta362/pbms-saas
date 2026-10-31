@@ -166,6 +166,75 @@ class AuthenticationAndTenantIsolationSecurityTests(TestCase):
         me_res = self.client.get("/api/v1/auth/me/")
         self.assertEqual(me_res.status_code, 401)
 
+    def test_logout_all_revokes_all_active_sessions_and_blocks_tokens(self) -> None:
+        # 1. User logs in on Client 1
+        res1 = self.client.post(
+            "/api/v1/auth/login/",
+            {"email": "sokha@shop-a.com", "password": self.password},
+            format="json",
+        ).json()
+        token1 = res1["access_token"]
+
+        # 2. User logs in on Client 2
+        res2 = self.client.post(
+            "/api/v1/auth/login/",
+            {"email": "sokha@shop-a.com", "password": self.password},
+            format="json",
+        ).json()
+        token2 = res2["access_token"]
+
+        # Assert two active sessions exist for User A
+        self.assertEqual(AuthSession.objects.filter(user=self.user_a, is_revoked=False).count(), 2)
+
+        # 3. Client 2 executes logout-all
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token2}")
+        logout_all_res = self.client.post("/api/v1/auth/logout-all/")
+        self.assertEqual(logout_all_res.status_code, 200)
+        self.assertEqual(logout_all_res.json()["status"], "revoked_all")
+        self.assertEqual(logout_all_res.json()["sessions_revoked"], 2)
+
+        # 4. Assert all sessions in DB are revoked
+        self.assertEqual(AuthSession.objects.filter(user=self.user_a, is_revoked=False).count(), 0)
+
+        # 5. Neither token can authenticate anymore
+        c1 = APIClient()
+        c1.credentials(HTTP_AUTHORIZATION=f"Bearer {token1}")
+        self.assertEqual(c1.get("/api/v1/auth/me/").status_code, 401)
+
+        c2 = APIClient()
+        c2.credentials(HTTP_AUTHORIZATION=f"Bearer {token2}")
+        self.assertEqual(c2.get("/api/v1/auth/me/").status_code, 401)
+
+        # 6. Audit event was generated
+        self.assertTrue(
+            AuditEvent.objects.filter(actor_user=self.user_a, event_type="AUTH_LOGOUT_ALL").exists()
+        )
+
+    def test_login_throttling_enforces_rate_limit(self) -> None:
+        from unittest.mock import patch
+        from django.core.cache import cache
+        from rest_framework.throttling import ScopedRateThrottle
+        cache.clear()
+
+        with patch.dict(ScopedRateThrottle.THROTTLE_RATES, {"auth_login": "5/minute"}):
+            # Make requests up to rate limit (5)
+            for _ in range(5):
+                res = self.client.post(
+                    "/api/v1/auth/login/",
+                    {"email": "sokha@shop-a.com", "password": "wrong-password"},
+                    format="json",
+                )
+                self.assertEqual(res.status_code, 401)
+
+            # 6th attempt should be throttled
+            throttled_res = self.client.post(
+                "/api/v1/auth/login/",
+                {"email": "sokha@shop-a.com", "password": "wrong-password"},
+                format="json",
+            )
+            self.assertEqual(throttled_res.status_code, 429)
+        cache.clear()
+
     def test_cross_tenant_idor_access_is_strictly_blocked(self) -> None:
         login_res = self.client.post(
             "/api/v1/auth/login/",

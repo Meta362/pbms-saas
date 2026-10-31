@@ -1,3 +1,4 @@
+from django.contrib.auth.hashers import make_password
 from datetime import timedelta
 from decimal import Decimal
 from django.contrib.auth import get_user_model
@@ -5,6 +6,7 @@ from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 from apps.operations.models import (
+    Customer,
     CustomerInvoice,
     ProductionJob,
     Quotation,
@@ -947,3 +949,381 @@ class PrintingBusinessOperationsDomainTests(TestCase):
         self.assertEqual(data["paid_usd"], "0.01")
         self.assertEqual(data["balance_due_usd"], "109.99")
         self.assertEqual(data["status"], "PARTIALLY_PAID")
+
+
+class MultiItemQuotationAndOrderLineItemTests(TestCase):
+    """
+    DOM-001 & docs/DATABASE.md Section 2.4:
+    Verifies multi-item quotation creation, deterministic line-item rollup,
+    QuotationItem persistence, and SalesOrderItem propagation on conversion.
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.password = "TenantPass#2026"
+        self.tenant = Tenant.objects.create(
+            name="Angkor Commercial Press",
+            slug="angkor-press",
+            status=TenantStatus.ACTIVE,
+            khr_exchange_rate=Decimal("4100.00"),
+            tax_rate_percent=Decimal("10.00"),
+        )
+        self.user = User.objects.create(
+            email="owner@angkor-press.com",
+            full_name="Angkor Owner",
+            password=make_password(self.password),
+            is_active=True,
+        )
+        self.membership = TenantMembership.objects.create(
+            tenant=self.tenant,
+            user=self.user,
+            role=TenantRole.TENANT_OWNER,
+        )
+        plan = Plan.objects.create(
+            code="enterprise-plan",
+            name_en="Enterprise Plan",
+            name_km="គម្រោងសហគ្រាស",
+            monthly_price_usd=Decimal("99.00"),
+            annual_price_usd=Decimal("990.00"),
+            max_staff_users=20,
+            max_orders_per_month=500,
+        )
+        TenantSubscription.objects.create(
+            tenant=self.tenant,
+            plan=plan,
+            status=SubscriptionStatus.ACTIVE,
+            current_period_start=timezone.now(),
+            current_period_end=timezone.now() + timedelta(days=30),
+        )
+        self.customer = Customer.objects.create(
+            tenant=self.tenant,
+            name="Chip Mong Innotech",
+            company_name="Chip Mong Group",
+            phone="012345678",
+        )
+
+        login_res = self.client.post(
+            "/api/v1/auth/login/",
+            {"email": "owner@angkor-press.com", "password": self.password},
+            format="json",
+        )
+        self.assertEqual(login_res.status_code, 200)
+        token = login_res.json()["access_token"]
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+            HTTP_X_TENANT_ID=str(self.tenant.id),
+        )
+
+    def test_multi_item_quotation_creation_and_rollups(self):
+        """
+        Tests creating a quotation with 2 distinct line items:
+        Item 1: 1,000 Business Cards @ $0.0350 + $5 Setup + $10 Finishing = $50.00
+        Item 2: 500 Letterheads @ $0.0800 + $10 Setup + $0 Finishing = $50.00
+        Total Subtotal: $100.00
+        Discount: $10.00 -> Taxable: $90.00
+        Tax (10%): $9.00 -> Total USD: $99.00
+        Total KHR (4100): 405,900 Riel
+        """
+        payload = {
+            "customer_id": str(self.customer.id),
+            "title": "Corporate Identity Print Package",
+            "discount_usd": "10.00",
+            "items": [
+                {
+                    "item_title": "1,000 Business Cards",
+                    "specification_summary": "300gsm Art Card, 2-side Matte",
+                    "quantity": 1000,
+                    "unit_price_usd": "0.0350",
+                    "setup_fee_usd": "5.00",
+                    "finishing_fee_usd": "10.00",
+                },
+                {
+                    "item_title": "500 Letterheads A4",
+                    "specification_summary": "100gsm Woodfree, 1-side CMYK",
+                    "quantity": 500,
+                    "unit_price_usd": "0.0800",
+                    "setup_fee_usd": "10.00",
+                    "finishing_fee_usd": "0.00",
+                },
+            ],
+        }
+
+        res = self.client.post("/api/v1/tenant/quotations/", payload, format="json")
+        self.assertEqual(res.status_code, 201)
+        data = res.json()
+
+        # Check calculated rollups
+        self.assertEqual(data["subtotal_usd"], "100.00")
+        self.assertEqual(data["tax_amount_usd"], "9.00")
+        self.assertEqual(data["total_usd"], "99.00")
+        self.assertEqual(data["total_khr"], "405900")
+        self.assertEqual(data["quantity"], 1500)  # Sum of item quantities
+
+        # Check items in response
+        self.assertIn("items", data)
+        self.assertEqual(len(data["items"]), 2)
+        self.assertEqual(data["items"][0]["item_title"], "1,000 Business Cards")
+        self.assertEqual(data["items"][0]["subtotal_usd"], "50.00")
+        self.assertEqual(data["items"][1]["item_title"], "500 Letterheads A4")
+        self.assertEqual(data["items"][1]["subtotal_usd"], "50.00")
+
+        # Verify database models
+        quote_id = data["id"]
+        from apps.operations.models import QuotationItem
+        db_items = QuotationItem.objects.filter(quotation_id=quote_id)
+        self.assertEqual(db_items.count(), 2)
+
+    def test_multi_item_quotation_conversion_populates_sales_order_items(self):
+        """
+        Tests converting a multi-item quotation into a SalesOrder spawns corresponding SalesOrderItems.
+        """
+        payload = {
+            "customer_id": str(self.customer.id),
+            "title": "Dual Item Package",
+            "discount_usd": "0.00",
+            "items": [
+                {
+                    "item_title": "Brochure A4",
+                    "specification_summary": "150gsm Gloss",
+                    "quantity": 200,
+                    "unit_price_usd": "0.5000",
+                    "setup_fee_usd": "10.00",
+                    "finishing_fee_usd": "5.00",
+                },
+                {
+                    "item_title": "Rollup Banner 80x200cm",
+                    "specification_summary": "PP Synthetic + Stand",
+                    "quantity": 2,
+                    "unit_price_usd": "15.0000",
+                    "setup_fee_usd": "5.00",
+                    "finishing_fee_usd": "0.00",
+                },
+            ],
+        }
+        q_res = self.client.post("/api/v1/tenant/quotations/", payload, format="json")
+        self.assertEqual(q_res.status_code, 201)
+        quote_id = q_res.json()["id"]
+
+        # Convert to Sales Order
+        conv_res = self.client.post(
+            f"/api/v1/tenant/quotations/{quote_id}/convert/",
+            {"artwork_file_name": "package_artwork_final.pdf"},
+            format="json",
+        )
+        self.assertEqual(conv_res.status_code, 201)
+        order_data = conv_res.json()
+        self.assertEqual(order_data["order_number"], "SO-0001")
+
+        # Verify SalesOrderItem models created
+        from apps.operations.models import SalesOrderItem
+        order_items = SalesOrderItem.objects.filter(sales_order_id=order_data["id"])
+        self.assertEqual(order_items.count(), 2)
+        self.assertEqual(order_items.filter(item_title="Brochure A4").count(), 1)
+        self.assertEqual(order_items.filter(item_title="Rollup Banner 80x200cm").count(), 1)
+
+
+class CambodiaBakongKhqrTests(TestCase):
+    """
+    CAM-001: Verification of NBC Bakong KHQR dynamic EMVCo payloads,
+    dual-currency breakdowns (USD & KHR), and strict tenant isolation.
+    """
+
+    def setUp(self) -> None:
+        self.client = APIClient()
+        ensure_default_plans()
+        self.starter_plan = Plan.objects.get(code="starter")
+
+        self.tenant_a = Tenant.objects.create(
+            name="Angkor Printing House",
+            slug="angkor-print",
+            status=TenantStatus.ACTIVE,
+            phone="+85512998877",
+            khr_exchange_rate=Decimal("4120.00"),
+        )
+        self.tenant_b = Tenant.objects.create(
+            name="Mekong Offset",
+            slug="mekong-offset",
+            status=TenantStatus.ACTIVE,
+            phone="+85512112233",
+            khr_exchange_rate=Decimal("4100.00"),
+        )
+        self.user_a = User.objects.create_user(
+            email="owner.angkor@pbms.local",
+            password="StrongPassword123!",
+            full_name="Angkor Owner",
+        )
+        TenantMembership.objects.create(
+            tenant=self.tenant_a,
+            user=self.user_a,
+            role=TenantRole.TENANT_OWNER,
+            is_active=True,
+        )
+
+        self.user_designer = User.objects.create_user(
+            email="designer.angkor@pbms.local",
+            password="StrongPassword123!",
+            full_name="Angkor Designer",
+        )
+        TenantMembership.objects.create(
+            tenant=self.tenant_a,
+            user=self.user_designer,
+            role=TenantRole.DESIGNER,
+            is_active=True,
+        )
+
+        self.user_b = User.objects.create_user(
+            email="owner.mekong@pbms.local",
+            password="StrongPassword123!",
+            full_name="Mekong Owner",
+        )
+        TenantMembership.objects.create(
+            tenant=self.tenant_b,
+            user=self.user_b,
+            role=TenantRole.TENANT_OWNER,
+            is_active=True,
+        )
+
+        now = timezone.now()
+        TenantSubscription.objects.create(
+            tenant=self.tenant_a,
+            plan=self.starter_plan,
+            billing_cycle=BillingCycle.MONTHLY,
+            status=SubscriptionStatus.ACTIVE,
+            current_period_start=now,
+            current_period_end=now + timedelta(days=365),
+        )
+        TenantSubscription.objects.create(
+            tenant=self.tenant_b,
+            plan=self.starter_plan,
+            billing_cycle=BillingCycle.MONTHLY,
+            status=SubscriptionStatus.ACTIVE,
+            current_period_start=now,
+            current_period_end=now + timedelta(days=365),
+        )
+
+        self.customer = Customer.objects.create(
+            tenant=self.tenant_a,
+            name="Sihanoukville Casino & Hotel",
+            phone="034998877",
+        )
+
+    def _login_as(self, user: User, tenant: Tenant) -> None:
+        login_res = self.client.post(
+            "/api/v1/auth/login/",
+            {"email": user.email, "password": "StrongPassword123!"},
+            format="json",
+        )
+        self.assertEqual(login_res.status_code, 200)
+        token = login_res.json()["access_token"]
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+            HTTP_X_TENANT_ID=str(tenant.id),
+        )
+
+    def test_emvco_crc16_and_tlv_compliance(self) -> None:
+        """
+        Verify pure Python CRC-16 (CCITT-FALSE 0x1021) and TLV generation.
+        """
+        from apps.operations.khqr_service import compute_emv_crc16, generate_khqr_payload, generate_khqr_svg
+
+        # Known standard test
+        sample = "00020101021129370016A0000006770101110113006681234567853037645802TH6304"
+        self.assertEqual(compute_emv_crc16(sample), "823E")
+
+        # Generate USD dynamic payload
+        usd_payload = generate_khqr_payload(
+            bakong_account_id="angkor_print@aclb",
+            merchant_name="Angkor Printing House",
+            merchant_city="Phnom Penh",
+            amount=Decimal("150.00"),
+            currency="USD",
+            bill_number="INV-0001",
+        )
+        qr_str = usd_payload["qr_payload"]
+        self.assertTrue(qr_str.startswith("000201010212"))
+        self.assertIn("5303840", qr_str)  # USD currency code
+        self.assertIn("5406150.00", qr_str)  # Amount
+        self.assertIn("5802KH", qr_str)  # Cambodia
+        self.assertIn("6304", qr_str)  # CRC tag
+
+        # Verify CRC integrity: recalculating over payload[:-4] matches payload[-4:]
+        calculated_crc = compute_emv_crc16(qr_str[:-4])
+        self.assertEqual(calculated_crc, qr_str[-4:])
+
+        # Verify SVG generation
+        svg = generate_khqr_svg(qr_str, size=300)
+        self.assertTrue(svg.startswith("<svg"))
+        self.assertIn('viewBox="0 0', svg)
+        self.assertIn("<path d=", svg)
+
+    def test_invoice_khqr_endpoint_and_strict_tenant_isolation(self) -> None:
+        """
+        Verify GET /api/v1/tenant/invoices/<id>/khqr/ returns valid bundle
+        and blocks cross-tenant access.
+        """
+        self._login_as(self.user_a, self.tenant_a)
+
+        # 1. Create quote and convert to generate invoice
+        q_res = self.client.post(
+            "/api/v1/tenant/quotations/",
+            {
+                "customer_id": str(self.customer.id),
+                "title": "VIP Brochures",
+                "quantity": 500,
+                "setup_fee_usd": "20.00",
+                "unit_price_usd": "0.4000",
+                "finishing_fee_usd": "10.00",
+                "discount_usd": "0.00",
+            },
+            format="json",
+        )
+        self.assertEqual(q_res.status_code, 201)
+        quote_id = q_res.json()["id"]
+
+        conv_res = self.client.post(
+            f"/api/v1/tenant/quotations/{quote_id}/convert/",
+            {"artwork_file_name": "vip_brochures.pdf"},
+            format="json",
+        )
+        self.assertEqual(conv_res.status_code, 201)
+
+        # Retrieve invoice list
+        inv_res = self.client.get("/api/v1/tenant/invoices/")
+        self.assertEqual(inv_res.status_code, 200)
+        invoices = inv_res.json()
+        self.assertGreater(len(invoices), 0)
+        invoice_id = invoices[0]["id"]
+
+        # 2. Fetch KHQR bundle
+        khqr_res = self.client.get(f"/api/v1/tenant/invoices/{invoice_id}/khqr/")
+        self.assertEqual(khqr_res.status_code, 200)
+        data = khqr_res.json()
+
+        self.assertEqual(data["invoice_id"], invoice_id)
+        self.assertEqual(data["merchant_name"], "Angkor Printing House")
+        self.assertEqual(data["khr_exchange_rate"], "4120.00")
+        self.assertEqual(data["balance_due_usd"], "230.00")  # (500*0.4) + 20 + 10 = 230
+        self.assertEqual(data["balance_due_khr"], "947600")  # 230 * 4120 = 947600
+
+        # Validate USD sub-bundle
+        self.assertEqual(data["usd"]["currency"], "USD")
+        self.assertEqual(data["usd"]["amount"], "230.00")
+        self.assertTrue(len(data["usd"]["qr_payload"]) > 50)
+        self.assertTrue(len(data["usd"]["qr_svg"]) > 200)
+        self.assertEqual(len(data["usd"]["md5_hash"]), 32)
+        self.assertTrue(data["usd"]["deep_link"].startswith("https://bakong.nbc.org.kh/pay?qr="))
+
+        # Validate KHR sub-bundle
+        self.assertEqual(data["khr"]["currency"], "KHR")
+        self.assertEqual(data["khr"]["amount"], "947600")
+        self.assertTrue("5303116" in data["khr"]["qr_payload"])  # KHR code
+
+        # 3. RBAC Check: DESIGNER role should be forbidden (403)
+        self._login_as(self.user_designer, self.tenant_a)
+        designer_res = self.client.get(f"/api/v1/tenant/invoices/{invoice_id}/khqr/")
+        self.assertEqual(designer_res.status_code, 403)
+
+        # 4. Strict Tenant Isolation: Tenant B user cannot access Tenant A invoice (404)
+        self._login_as(self.user_b, self.tenant_b)
+        cross_res = self.client.get(f"/api/v1/tenant/invoices/{invoice_id}/khqr/")
+        self.assertEqual(cross_res.status_code, 404)

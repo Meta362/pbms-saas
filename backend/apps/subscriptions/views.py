@@ -101,6 +101,7 @@ class PublicTenantRegistrationAPIView(APIView):
     """
 
     permission_classes = [AllowAny]
+    throttle_scope = "auth_register" 
 
     @transaction.atomic
     def post(self, request: Request) -> Response:
@@ -450,4 +451,111 @@ class SuperAdminTenantStatusAPIView(APIView):
                 "status": tenant.status,
                 "subscription_status": subscription.status if subscription else None,
             }
+        )
+
+
+class SuperAdminUsbLicenseVerifyAPIView(APIView):
+    """
+    Frontend A: Verifies physical SuperAdmin USB Flash Drive hardware license.dat token.
+    Validates digital signature, physical volume serial hardware binding, expiry, and revocation.
+    """
+
+    permission_classes = [IsAuthenticated, IsPlatformSuperAdmin]
+
+    def post(self, request: Request) -> Response:
+        from apps.core.usb_licensing import (
+            issue_elevated_usb_jwt,
+            validate_usb_license,
+        )
+
+        license_data = request.data.get("license_data")
+        hardware_fingerprint = request.data.get("hardware_fingerprint")
+
+        if not isinstance(license_data, dict) or not isinstance(hardware_fingerprint, dict):
+            return Response(
+                {"detail": "Request must include 'license_data' and 'hardware_fingerprint' objects."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        is_valid, reason = validate_usb_license(
+            license_data=license_data,
+            hardware_fingerprint=hardware_fingerprint,
+            expected_user_email=request.user.email,
+        )
+
+        ip_address = request.META.get("REMOTE_ADDR")
+
+        if not is_valid:
+            AuditEvent.objects.create(
+                actor_user=request.user,
+                event_type="SUPERADMIN_USB_LICENSE_REJECTED",
+                target_model="core.UsbLicense",
+                target_id=str(license_data.get("license_id", "UNKNOWN")),
+                ip_address=ip_address,
+                metadata={"reason": reason, "email": request.user.email},
+            )
+            return Response(
+                {"detail": f"USB License Verification Failed: {reason}"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        session_id = getattr(request.auth, "id", None) or str(uuid.uuid4())
+        elevation_data = issue_elevated_usb_jwt(
+            user=request.user,
+            session_id=str(session_id),
+            license_id=license_data["license_id"],
+        )
+
+        AuditEvent.objects.create(
+            actor_user=request.user,
+            event_type="SUPERADMIN_USB_LICENSE_VERIFIED",
+            target_model="core.UsbLicense",
+            target_id=license_data["license_id"],
+            ip_address=ip_address,
+            metadata={
+                "volume_serial": hardware_fingerprint.get("volume_serial_number"),
+                "expires_at": license_data.get("expires_at"),
+            },
+        )
+
+        return Response(
+            {
+                "status": "verified",
+                "license_id": license_data["license_id"],
+                "issued_to": license_data["issued_to_email"],
+                "expires_at": license_data["expires_at"],
+                "permissions": license_data.get("permissions", []),
+                **elevation_data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class SuperAdminUsbLicenseRevokeAPIView(APIView):
+    """
+    Frontend A: SuperAdmin revokes a compromised or lost USB hardware license key.
+    """
+
+    permission_classes = [IsAuthenticated, IsPlatformSuperAdmin]
+
+    def post(self, request: Request) -> Response:
+        from apps.core.usb_licensing import revoke_usb_license
+
+        license_id = request.data.get("license_id")
+        reason = request.data.get("reason", "Revoked by SuperAdmin")
+        if not license_id or not isinstance(license_id, str):
+            return Response(
+                {"detail": "Mandatory parameter 'license_id' is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        revoke_usb_license(
+            license_id=license_id.strip(),
+            actor_user=request.user,
+            reason=reason,
+            ip_address=request.META.get("REMOTE_ADDR"),
+        )
+        return Response(
+            {"status": "revoked", "license_id": license_id},
+            status=status.HTTP_200_OK,
         )

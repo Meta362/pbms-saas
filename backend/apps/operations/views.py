@@ -9,6 +9,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from apps.core.models import AuditEvent
+from apps.operations.khqr_service import get_invoice_khqr_bundle
 from apps.operations.models import (
     Customer,
     CustomerInvoice,
@@ -19,6 +20,7 @@ from apps.operations.models import (
     ProductionJob,
     ProductionStage,
     Quotation,
+    QuotationItem,
     SalesOrder,
 )
 from apps.operations.serializers import (
@@ -237,7 +239,7 @@ class QuotationListCreateAPIView(APIView):
     }
 
     def get(self, request: Request) -> Response:
-        quotes = Quotation.objects.select_related("customer").filter(tenant=request.tenant)
+        quotes = Quotation.objects.select_related("customer").prefetch_related("items").filter(tenant=request.tenant)
         return Response(QuotationSerializer(quotes, many=True).data)
 
     @transaction.atomic
@@ -252,26 +254,47 @@ class QuotationListCreateAPIView(APIView):
             id=data["customer_id"],
             tenant=locked_tenant,
         )
-        totals = calculate_quotation_totals(
-            tenant=locked_tenant,
-            quantity=data["quantity"],
-            setup_fee_usd=data["setup_fee_usd"],
-            unit_price_usd=data["unit_price_usd"],
-            finishing_fee_usd=data["finishing_fee_usd"],
-            discount_usd=data["discount_usd"],
-        )
+        items_data = data.get("items", [])
+        if items_data and len(items_data) > 0:
+            from apps.operations.services import calculate_multi_item_quotation_totals
+            totals = calculate_multi_item_quotation_totals(
+                tenant=locked_tenant,
+                items=items_data,
+                discount_usd=data["discount_usd"],
+            )
+            overall_qty = sum(it["quantity"] for it in items_data)
+        else:
+            totals = calculate_quotation_totals(
+                tenant=locked_tenant,
+                quantity=data["quantity"],
+                setup_fee_usd=data["setup_fee_usd"],
+                unit_price_usd=data["unit_price_usd"],
+                finishing_fee_usd=data["finishing_fee_usd"],
+                discount_usd=data["discount_usd"],
+            )
+            overall_qty = data["quantity"]
+            totals["items"] = [{
+                "item_title": data["title"],
+                "specification_summary": data.get("specification_summary", ""),
+                "quantity": data["quantity"],
+                "setup_fee_usd": data["setup_fee_usd"],
+                "unit_price_usd": data["unit_price_usd"],
+                "finishing_fee_usd": data["finishing_fee_usd"],
+                "subtotal_usd": totals["subtotal_usd"],
+            }]
 
-        seq = Quotation.objects.filter(tenant=locked_tenant).count() + 1
+        from apps.operations.sequence_service import allocate_quotation_number
+        quote_number = allocate_quotation_number(locked_tenant)
         quote = Quotation.objects.create(
             tenant=locked_tenant,
             customer=customer,
-            quote_number=f"QT-{seq:04d}",
+            quote_number=quote_number,
             title=data["title"],
             specification_summary=data["specification_summary"],
-            quantity=data["quantity"],
-            setup_fee_usd=data["setup_fee_usd"],
-            unit_price_usd=data["unit_price_usd"],
-            finishing_fee_usd=data["finishing_fee_usd"],
+            quantity=overall_qty,
+            setup_fee_usd=data.get("setup_fee_usd", Decimal("0.00")),
+            unit_price_usd=data.get("unit_price_usd", Decimal("0.0000")),
+            finishing_fee_usd=data.get("finishing_fee_usd", Decimal("0.00")),
             discount_usd=data["discount_usd"],
             subtotal_usd=totals["subtotal_usd"],
             tax_amount_usd=totals["tax_amount_usd"],
@@ -279,6 +302,20 @@ class QuotationListCreateAPIView(APIView):
             total_khr=totals["total_khr"],
             created_by=request.user,
         )
+
+        for it in totals["items"]:
+            QuotationItem.objects.create(
+                tenant=locked_tenant,
+                quotation=quote,
+                item_title=it["item_title"],
+                specification_summary=it.get("specification_summary", ""),
+                quantity=it["quantity"],
+                setup_fee_usd=it["setup_fee_usd"],
+                unit_price_usd=it["unit_price_usd"],
+                finishing_fee_usd=it["finishing_fee_usd"],
+                subtotal_usd=it["subtotal_usd"],
+            )
+
         return Response(QuotationSerializer(quote).data, status=status.HTTP_201_CREATED)
 
 
@@ -434,3 +471,28 @@ class CustomerInvoicePaymentAPIView(APIView):
             CustomerInvoiceSerializer(invoice).data,
             status=status.HTTP_200_OK,
         )
+
+
+class CustomerInvoiceKhqrAPIView(APIView):
+    """
+    CAM-001: Dynamic NBC Bakong KHQR generator for customer invoices.
+    Returns EMVCo compliant payloads, dual-currency breakdowns, and pure vector SVGs.
+    """
+    permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "GET": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.FINANCE_STAFF,
+            TenantRole.SALES_STAFF,
+        },
+    }
+
+    def get(self, request: Request, invoice_id: str) -> Response:
+        invoice = get_object_or_404(
+            CustomerInvoice.objects.select_related("tenant", "sales_order__customer"),
+            id=invoice_id,
+            tenant=request.tenant,
+        )
+        bundle = get_invoice_khqr_bundle(invoice)
+        return Response(bundle, status=status.HTTP_200_OK)

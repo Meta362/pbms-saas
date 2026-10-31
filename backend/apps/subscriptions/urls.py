@@ -6,6 +6,8 @@ from apps.subscriptions.views import (
     SuperAdminPaymentReconcileAPIView,
     SuperAdminTenantListAPIView,
     SuperAdminTenantStatusAPIView,
+    SuperAdminUsbLicenseVerifyAPIView,
+    SuperAdminUsbLicenseRevokeAPIView,
 )
 
 urlpatterns = [
@@ -36,5 +38,15 @@ urlpatterns = [
         "super-admin/tenants/<uuid:tenant_id>/status/",
         SuperAdminTenantStatusAPIView.as_view(),
         name="super-admin-tenant-status",
+    ),
+    path(
+        "super-admin/license/verify/",
+        SuperAdminUsbLicenseVerifyAPIView.as_view(),
+        name="super-admin-usb-license-verify",
+    ),
+    path(
+        "super-admin/license/revoke/",
+        SuperAdminUsbLicenseRevokeAPIView.as_view(),
+        name="super-admin-usb-license-revoke",
     ),
 ]

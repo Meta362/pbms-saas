@@ -1,4 +1,5 @@
-﻿import os
+import os
+import sys
 from pathlib import Path
 from dotenv import load_dotenv
 from django.core.exceptions import ImproperlyConfigured
@@ -13,6 +14,11 @@ SECRET_KEY = os.getenv(
     "dev-only-insecure-secret-key-replace-in-env-immediately-9876543210",
 )
 
+JWT_SIGNING_KEY = os.getenv(
+    "JWT_SIGNING_KEY",
+    "dev-only-insecure-jwt-signing-key-replace-in-env-immediately-12345",
+)
+
 if not DEBUG:
     invalid_secrets = (
         "",
@@ -21,6 +27,41 @@ if not DEBUG:
     )
     if not SECRET_KEY or SECRET_KEY in invalid_secrets:
         raise ImproperlyConfigured("Invalid or missing DJANGO_SECRET_KEY for production.")
+
+    invalid_jwt_keys = (
+        "",
+        "dev-only-insecure-jwt-signing-key-replace-in-env-immediately-12345",
+        "replace-with-a-secure-50-char-random-string",
+        "replace-with-separate-jwt-signing-secret-key",
+        SECRET_KEY,
+    )
+    if not JWT_SIGNING_KEY or JWT_SIGNING_KEY in invalid_jwt_keys:
+        raise ImproperlyConfigured(
+            "Invalid or missing JWT_SIGNING_KEY for production. JWT signing key must be non-empty, secure, and distinct from DJANGO_SECRET_KEY."
+        )
+
+SUPERADMIN_LICENSE_SIGNING_KEY = os.getenv(
+    "SUPERADMIN_LICENSE_SIGNING_KEY",
+    "dev-only-usb-licensing-secret-key-change-in-prod-7766554433",
+)
+
+USB_HARDWARE_LICENSING_ENFORCED = os.getenv(
+    "USB_HARDWARE_LICENSING_ENFORCED",
+    "False" if ("test" in sys.argv) else "True",
+).lower() in ("true", "1")
+
+if not DEBUG:
+    invalid_license_keys = (
+        "",
+        "dev-only-usb-licensing-secret-key-change-in-prod-7766554433",
+        "replace-with-a-secure-license-key",
+        SECRET_KEY,
+        JWT_SIGNING_KEY,
+    )
+    if not SUPERADMIN_LICENSE_SIGNING_KEY or SUPERADMIN_LICENSE_SIGNING_KEY in invalid_license_keys:
+        raise ImproperlyConfigured(
+            "Invalid or missing SUPERADMIN_LICENSE_SIGNING_KEY for production. License key must be secure and distinct."
+        )
 
 ALLOWED_HOSTS = [
     host.strip()
@@ -152,6 +193,23 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.ScopedRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "auth_login": os.getenv(
+            "THROTTLE_RATE_AUTH_LOGIN",
+            "10000/minute" if ("test" in sys.argv) else "20/minute",
+        ),
+        "auth_refresh": os.getenv(
+            "THROTTLE_RATE_AUTH_REFRESH",
+            "10000/minute" if ("test" in sys.argv) else "60/minute",
+        ),
+        "auth_register": os.getenv(
+            "THROTTLE_RATE_AUTH_REGISTER",
+            "10000/minute" if ("test" in sys.argv) else "10/minute",
+        ),
+    },
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",
     ],
@@ -167,5 +225,3 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
 }
-
-

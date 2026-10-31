@@ -1,10 +1,11 @@
-﻿import hashlib
+import hashlib
 import os
 import uuid
 from datetime import timedelta
 from typing import Any
 import jwt
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 from django.db import transaction
 from django.utils import timezone
 from rest_framework.exceptions import AuthenticationFailed
@@ -13,7 +14,14 @@ from apps.core.models import AuditEvent
 
 
 def _get_signing_key() -> str:
-    return os.getenv("JWT_SIGNING_KEY", settings.SECRET_KEY)
+    key = getattr(settings, "JWT_SIGNING_KEY", None) or os.getenv("JWT_SIGNING_KEY")
+    if not key:
+        if not settings.DEBUG:
+            raise ImproperlyConfigured("Invalid or missing JWT_SIGNING_KEY for production.")
+        return settings.SECRET_KEY
+    if not settings.DEBUG and key == settings.SECRET_KEY:
+        raise ImproperlyConfigured("JWT_SIGNING_KEY must be distinct from DJANGO_SECRET_KEY in production.")
+    return key
 
 
 def _get_access_lifetime() -> timedelta:

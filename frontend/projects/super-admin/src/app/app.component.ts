@@ -57,8 +57,8 @@ export class AppComponent implements OnInit {
   private readonly http = inject(HttpClient);
 
   readonly user = signal<UserProfile | null>(null);
-  email = 'admin@pbms.local';
-  password = 'Admin@PBMS2026';
+  email = '';
+  password = '';
   readonly errorMsg = signal<string>('');
   readonly actionBanner = signal<string>('');
   readonly reconcilingPaymentId = signal<string | null>(null);
@@ -66,6 +66,13 @@ export class AppComponent implements OnInit {
 
   readonly overview = signal<SuperAdminOverview | null>(null);
   readonly tenants = signal<SuperAdminTenantItem[]>([]);
+
+  // SuperAdmin USB Hardware Licensing State
+  readonly usbStatus = signal<'NOT_ATTACHED' | 'VERIFYING' | 'VERIFIED' | 'INVALID'>('NOT_ATTACHED');
+  readonly usbLicense = signal<{ license_id: string; issued_to: string; expires_at: string; permissions: string[] } | null>(null);
+  readonly elevatedToken = signal<string | null>(null);
+  usbHardwareSerial = 'A4B27F91';
+  readonly usbError = signal<string>('');
 
   get isSuperAdmin(): boolean {
     return this.user()?.platform_role === 'SUPER_ADMIN';
@@ -206,6 +213,56 @@ export class AppComponent implements OnInit {
             err,
             'Payment reconciliation',
             'Payment reconciliation failed.'
+          );
+        },
+      });
+  }
+
+  onUsbFileSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    if (!input.files || input.files.length === 0) return;
+    const file = input.files[0];
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const licenseData = JSON.parse(reader.result as string);
+        this.verifyUsbDongle(licenseData, this.usbHardwareSerial);
+      } catch (e: any) {
+        this.usbStatus.set('INVALID');
+        this.usbError.set('Malformed license.dat file: JSON parsing failed.');
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  verifyUsbDongle(licenseData: any, volumeSerial: string): void {
+    this.usbStatus.set('VERIFYING');
+    this.usbError.set('');
+    const headers = this.session.getHeaders(this.STORAGE_KEY, false);
+    this.http
+      .post<any>(
+        `${API_BASE_URL}/super-admin/license/verify/`,
+        {
+          license_data: licenseData,
+          hardware_fingerprint: { volume_serial_number: volumeSerial.trim().toUpperCase() },
+        },
+        { headers }
+      )
+      .subscribe({
+        next: (res) => {
+          this.usbStatus.set('VERIFIED');
+          this.usbLicense.set(res);
+          this.elevatedToken.set(res.elevated_token);
+          this.actionBanner.set(
+            `SuperAdmin USB Security Dongle verified! (License: ${res.license_id.slice(0, 12)}...)`
+          );
+        },
+        error: (err) => {
+          this.usbStatus.set('INVALID');
+          this.elevatedToken.set(null);
+          this.usbLicense.set(null);
+          this.usbError.set(
+            err?.error?.detail || 'USB License verification failed. Unauthorized hardware.'
           );
         },
       });
