@@ -17,6 +17,8 @@ class TenantSettingsSerializer(serializers.ModelSerializer):
             "base_currency",
             "khr_exchange_rate",
             "tax_rate_percent",
+            "is_tax_registered",
+            "tax_id_number",
             "updated_at",
         ]
         read_only_fields = [
@@ -34,6 +36,7 @@ class TenantSettingsUpdateSerializer(serializers.Serializer):
     Enforces domain constraints matching Tenant check constraints:
     - khr_exchange_rate must be > 0 (min_value 0.01)
     - tax_rate_percent must be between 0.00 and 100.00
+    - is_tax_registered enables/disables VAT
     """
 
     khr_exchange_rate = serializers.DecimalField(
@@ -49,11 +52,15 @@ class TenantSettingsUpdateSerializer(serializers.Serializer):
         max_value=Decimal("100.00"),
         required=False,
     )
+    is_tax_registered = serializers.BooleanField(required=False)
+    tax_id_number = serializers.CharField(max_length=50, required=False, allow_blank=True)
 
     def validate(self, attrs):
         if not attrs:
             raise serializers.ValidationError(
-                "At least one setting field (khr_exchange_rate or tax_rate_percent) must be provided."
+                "At least one setting field must be provided."
             )
+        if attrs.get("is_tax_registered") is False and "tax_rate_percent" not in attrs:
+            attrs["tax_rate_percent"] = Decimal("0.00")
         return attrs
 

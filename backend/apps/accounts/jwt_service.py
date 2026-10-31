@@ -1,10 +1,11 @@
-﻿import hashlib
+import hashlib
 import os
 import uuid
 from datetime import timedelta
 from typing import Any
 import jwt
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 from django.db import transaction
 from django.utils import timezone
 from rest_framework.exceptions import AuthenticationFailed
@@ -13,7 +14,14 @@ from apps.core.models import AuditEvent
 
 
 def _get_signing_key() -> str:
-    return os.getenv("JWT_SIGNING_KEY", settings.SECRET_KEY)
+    key = getattr(settings, "JWT_SIGNING_KEY", None) or os.getenv("JWT_SIGNING_KEY")
+    if not key:
+        if not settings.DEBUG:
+            raise ImproperlyConfigured("Invalid or missing JWT_SIGNING_KEY for production.")
+        return settings.SECRET_KEY
+    if not settings.DEBUG and key == settings.SECRET_KEY:
+        raise ImproperlyConfigured("JWT_SIGNING_KEY must be distinct from DJANGO_SECRET_KEY in production.")
+    return key
 
 
 def _get_access_lifetime() -> timedelta:
@@ -60,6 +68,19 @@ def create_session_and_issue_tokens(
 
     access_jti = str(uuid.uuid4())
     refresh_jti = str(uuid.uuid4())
+
+    # Enforce device limit: kick out oldest active session if active devices exceed threshold (e.g. 2 for solo accounts)
+    max_devices = 2 if not user.is_platform_staff else 5
+    active_sessions = AuthSession.objects.filter(
+        user=user,
+        is_revoked=False,
+        expires_at__gt=now,
+    ).order_by("created_at")
+    if active_sessions.count() >= max_devices:
+        excess = active_sessions.count() - max_devices + 1
+        for old_s in active_sessions[:excess]:
+            old_s.is_revoked = True
+            old_s.save(update_fields=["is_revoked"])
 
     session = AuthSession.objects.create(
         user=user,
@@ -217,3 +238,79 @@ def rotate_refresh_token(
         raise AuthenticationFailed("Refresh token reuse detected. Session family revoked.")
 
     return result
+
+
+@transaction.atomic
+def issue_impersonation_token(
+    *,
+    superadmin_user: User,
+    target_tenant_id: str,
+    ip_address: str | None = None,
+) -> dict[str, Any]:
+    """
+    SUP-001: Issues a temporary 15-minute scoped JWT for SuperAdmin Support Impersonation
+    with mandatory immutable audit logging.
+    """
+    from apps.tenants.models import Tenant, TenantMembership, TenantRole
+
+    tenant = Tenant.objects.get(id=target_tenant_id)
+    owner_membership = (
+        tenant.memberships.filter(role=TenantRole.TENANT_OWNER, is_active=True).first()
+        or tenant.memberships.filter(is_active=True).first()
+    )
+    if not owner_membership:
+        raise ValueError(f"Tenant '{tenant.name}' has no active user memberships to impersonate.")
+    target_user = owner_membership.user
+
+    now = timezone.now()
+    exp = now + timedelta(minutes=15)
+    jti = str(uuid.uuid4())
+
+    session = AuthSession.objects.create(
+        user=target_user,
+        current_refresh_jti_hash=hash_jti(str(uuid.uuid4())),
+        previous_refresh_jti_hash="",
+        ip_address=ip_address,
+        user_agent=f"PBMS Support Impersonation by {superadmin_user.email}",
+        expires_at=exp,
+    )
+
+    access_payload = {
+        "token_type": "access",
+        "sub": str(target_user.id),
+        "session_id": str(session.id),
+        "jti": jti,
+        "platform_role": target_user.platform_role,
+        "tenant_id": str(tenant.id),
+        "tenant_slug": tenant.slug,
+        "is_impersonation": True,
+        "impersonated_by": str(superadmin_user.id),
+        "impersonator_email": superadmin_user.email,
+        "iat": int(now.timestamp()),
+        "exp": int(exp.timestamp()),
+    }
+
+    AuditEvent.objects.create(
+        actor_user=superadmin_user,
+        tenant=tenant,
+        event_type="SUPERADMIN_TENANT_IMPERSONATED",
+        target_model="tenants.Tenant",
+        target_id=str(tenant.id),
+        ip_address=ip_address,
+        metadata={
+            "tenant_name": tenant.name,
+            "target_user_email": target_user.email,
+            "superadmin_email": superadmin_user.email,
+        },
+    )
+
+    return {
+        "access_token": _encode_jwt(access_payload),
+        "tenant_id": str(tenant.id),
+        "tenant_name": tenant.name,
+        "tenant_slug": tenant.slug,
+        "target_user_email": target_user.email,
+        "impersonator_email": superadmin_user.email,
+        "is_impersonation": True,
+        "expires_in": 900,
+    }

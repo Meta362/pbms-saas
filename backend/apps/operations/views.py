@@ -1,3 +1,4 @@
+from django.http import HttpResponse
 from decimal import Decimal
 from django.db import transaction
 from django.db.models import Sum
@@ -9,6 +10,9 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from apps.core.models import AuditEvent
+from apps.operations.khqr_service import get_invoice_khqr_bundle
+from apps.operations.imposition_service import calculate_sheet_imposition
+from apps.operations.report_service import generate_gdt_vat_sales_journal, generate_vat_sales_journal_csv
 from apps.operations.models import (
     Customer,
     CustomerInvoice,
@@ -19,6 +23,7 @@ from apps.operations.models import (
     ProductionJob,
     ProductionStage,
     Quotation,
+    QuotationItem,
     SalesOrder,
 )
 from apps.operations.serializers import (
@@ -32,6 +37,7 @@ from apps.operations.serializers import (
     QuotationCreateSerializer,
     QuotationSerializer,
     SalesOrderSerializer,
+    ImpositionCalculateSerializer,
 )
 from apps.operations.services import (
     calculate_quotation_totals,
@@ -237,7 +243,7 @@ class QuotationListCreateAPIView(APIView):
     }
 
     def get(self, request: Request) -> Response:
-        quotes = Quotation.objects.select_related("customer").filter(tenant=request.tenant)
+        quotes = Quotation.objects.select_related("customer").prefetch_related("items").filter(tenant=request.tenant)
         return Response(QuotationSerializer(quotes, many=True).data)
 
     @transaction.atomic
@@ -252,26 +258,47 @@ class QuotationListCreateAPIView(APIView):
             id=data["customer_id"],
             tenant=locked_tenant,
         )
-        totals = calculate_quotation_totals(
-            tenant=locked_tenant,
-            quantity=data["quantity"],
-            setup_fee_usd=data["setup_fee_usd"],
-            unit_price_usd=data["unit_price_usd"],
-            finishing_fee_usd=data["finishing_fee_usd"],
-            discount_usd=data["discount_usd"],
-        )
+        items_data = data.get("items", [])
+        if items_data and len(items_data) > 0:
+            from apps.operations.services import calculate_multi_item_quotation_totals
+            totals = calculate_multi_item_quotation_totals(
+                tenant=locked_tenant,
+                items=items_data,
+                discount_usd=data["discount_usd"],
+            )
+            overall_qty = sum(it["quantity"] for it in items_data)
+        else:
+            totals = calculate_quotation_totals(
+                tenant=locked_tenant,
+                quantity=data["quantity"],
+                setup_fee_usd=data["setup_fee_usd"],
+                unit_price_usd=data["unit_price_usd"],
+                finishing_fee_usd=data["finishing_fee_usd"],
+                discount_usd=data["discount_usd"],
+            )
+            overall_qty = data["quantity"]
+            totals["items"] = [{
+                "item_title": data["title"],
+                "specification_summary": data.get("specification_summary", ""),
+                "quantity": data["quantity"],
+                "setup_fee_usd": data["setup_fee_usd"],
+                "unit_price_usd": data["unit_price_usd"],
+                "finishing_fee_usd": data["finishing_fee_usd"],
+                "subtotal_usd": totals["subtotal_usd"],
+            }]
 
-        seq = Quotation.objects.filter(tenant=locked_tenant).count() + 1
+        from apps.operations.sequence_service import allocate_quotation_number
+        quote_number = allocate_quotation_number(locked_tenant)
         quote = Quotation.objects.create(
             tenant=locked_tenant,
             customer=customer,
-            quote_number=f"QT-{seq:04d}",
+            quote_number=quote_number,
             title=data["title"],
             specification_summary=data["specification_summary"],
-            quantity=data["quantity"],
-            setup_fee_usd=data["setup_fee_usd"],
-            unit_price_usd=data["unit_price_usd"],
-            finishing_fee_usd=data["finishing_fee_usd"],
+            quantity=overall_qty,
+            setup_fee_usd=data.get("setup_fee_usd", Decimal("0.00")),
+            unit_price_usd=data.get("unit_price_usd", Decimal("0.0000")),
+            finishing_fee_usd=data.get("finishing_fee_usd", Decimal("0.00")),
             discount_usd=data["discount_usd"],
             subtotal_usd=totals["subtotal_usd"],
             tax_amount_usd=totals["tax_amount_usd"],
@@ -279,6 +306,20 @@ class QuotationListCreateAPIView(APIView):
             total_khr=totals["total_khr"],
             created_by=request.user,
         )
+
+        for it in totals["items"]:
+            QuotationItem.objects.create(
+                tenant=locked_tenant,
+                quotation=quote,
+                item_title=it["item_title"],
+                specification_summary=it.get("specification_summary", ""),
+                quantity=it["quantity"],
+                setup_fee_usd=it["setup_fee_usd"],
+                unit_price_usd=it["unit_price_usd"],
+                finishing_fee_usd=it["finishing_fee_usd"],
+                subtotal_usd=it["subtotal_usd"],
+            )
+
         return Response(QuotationSerializer(quote).data, status=status.HTTP_201_CREATED)
 
 
@@ -434,3 +475,97 @@ class CustomerInvoicePaymentAPIView(APIView):
             CustomerInvoiceSerializer(invoice).data,
             status=status.HTTP_200_OK,
         )
+
+
+class CustomerInvoiceKhqrAPIView(APIView):
+    """
+    CAM-001: Dynamic NBC Bakong KHQR generator for customer invoices.
+    Returns EMVCo compliant payloads, dual-currency breakdowns, and pure vector SVGs.
+    """
+    permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "GET": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.FINANCE_STAFF,
+            TenantRole.SALES_STAFF,
+        },
+    }
+
+    def get(self, request: Request, invoice_id: str) -> Response:
+        invoice = get_object_or_404(
+            CustomerInvoice.objects.select_related("tenant", "sales_order__customer"),
+            id=invoice_id,
+            tenant=request.tenant,
+        )
+        bundle = get_invoice_khqr_bundle(invoice)
+        return Response(bundle, status=status.HTTP_200_OK)
+
+
+class ImpositionCalculatorAPIView(APIView):
+    """
+    PROD-001: Commercial Sheet Imposition & Paper Cut Estimator.
+    Optimizes cutting layout on parent sheets, calculates waste, and returns SVG visualization.
+    """
+    permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "POST": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.SALES_STAFF,
+            TenantRole.DESIGNER,
+            TenantRole.PRODUCTION_STAFF,
+        },
+    }
+
+    def post(self, request: Request) -> Response:
+        serializer = ImpositionCalculateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        d = serializer.validated_data
+        result = calculate_sheet_imposition(
+            parent_width_mm=d["parent_sheet_width_mm"],
+            parent_height_mm=d["parent_sheet_height_mm"],
+            cut_width_mm=d["cut_width_mm"],
+            cut_height_mm=d["cut_height_mm"],
+            margin_mm=d["margin_mm"],
+            gripper_mm=d["gripper_mm"],
+            bleed_mm=d["bleed_mm"],
+            target_quantity=d["target_quantity"],
+            spoilage_percent=d["spoilage_percent"],
+        )
+        return Response(result, status=status.HTTP_200_OK)
+
+
+class VatSalesJournalReportAPIView(APIView):
+    """
+    REP-001: Official GDT (General Department of Taxation) VAT Sales Journal.
+    Generates monthly sales reports in JSON or Excel-compatible UTF-8 CSV with BOM.
+    """
+    permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "GET": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.FINANCE_STAFF,
+        },
+    }
+
+    def get(self, request: Request) -> Response | HttpResponse:
+        year = request.query_params.get("year")
+        month = request.query_params.get("month")
+        export_type = request.query_params.get("export", request.query_params.get("export_format", "json")).lower()
+
+        journal = generate_gdt_vat_sales_journal(
+            tenant=request.tenant,
+            year=int(year) if year and year.isdigit() else None,
+            month=int(month) if month and month.isdigit() else None,
+        )
+
+        if export_type == "csv":
+            csv_str = generate_vat_sales_journal_csv(journal)
+            filename = f"vat_sales_journal_{journal['report_period']}.csv"
+            resp = HttpResponse(csv_str, content_type="text/csv; charset=utf-8")
+            resp["Content-Disposition"] = f'attachment; filename="{filename}"'
+            return resp
+
+        return Response(journal, status=status.HTTP_200_OK)

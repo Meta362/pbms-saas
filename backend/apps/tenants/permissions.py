@@ -21,6 +21,45 @@ class IsPlatformSuperAdmin(BasePermission):
         )
 
 
+class HasVerifiedUsbLicense(BasePermission):
+    """
+    Mandatory SuperAdmin USB Hardware Licensing Permission:
+    Requires user to be a Platform SuperAdmin AND present a valid elevated USB JWT token
+    via the X-USB-Elevated-Token header or authenticated session.
+    """
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        from django.conf import settings
+        user = request.user
+        if not (
+            user
+            and user.is_authenticated
+            and user.is_active
+            and user.is_platform_staff
+            and user.platform_role == PlatformRole.SUPER_ADMIN
+        ):
+            return False
+
+        if not getattr(settings, "USB_HARDWARE_LICENSING_ENFORCED", True):
+            return True
+
+        elevated_token = request.headers.get("X-USB-Elevated-Token")
+        if not elevated_token:
+            auth_header = request.headers.get("Authorization", "")
+            if auth_header.startswith("Bearer "):
+                elevated_token = auth_header.split(" ", 1)[1]
+
+        if not elevated_token:
+            return False
+
+        try:
+            from apps.core.usb_licensing import verify_elevated_usb_jwt
+            verify_elevated_usb_jwt(elevated_token, user)
+            return True
+        except Exception:
+            return False
+
+
 class IsPlatformSuperAdminOrSupportReadOnly(BasePermission):
     """
     REQ-RBAC-01 & docs/RBAC.md Section 2:

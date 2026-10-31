@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: pbms-postgres
+    restart: always
+    environment:
+      POSTGRES_DB: pbms_dev
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: Postgres-2026!OtdgpweyteBIT
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: pbms-backend
+    restart: always
+    depends_on:
+      - db
+    ports:
+      - "8000:8000"
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings
+      DJANGO_SECRET_KEY: local-dev-pbms-secret-key-a9f8e7d6c5b4a3f2e1d0-2026-secure
+      DJANGO_DEBUG: "True"
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,backend
+      POSTGRES_DB: pbms_dev
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: Postgres-2026!OtdgpweyteBIT
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      JWT_ACCESS_TOKEN_LIFETIME_MINUTES: 15
+      JWT_REFRESH_TOKEN_LIFETIME_DAYS: 7
+      JWT_SIGNING_KEY: local-dev-jwt-signing-secret-key-99887766554433221100
+      CORS_ALLOWED_ORIGINS: http://localhost:4200,http://localhost:4201,http://localhost:4202
+
+volumes:
+  pgdata:
