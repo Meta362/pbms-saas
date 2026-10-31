@@ -227,3 +227,15 @@ class InvoicePaymentCreateSerializer(serializers.Serializer):
     )
     payment_method = serializers.CharField(max_length=32, default="KHQR_ABA")
     reference_number = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
+
+
+class ImpositionCalculateSerializer(serializers.Serializer):
+    parent_sheet_width_mm = serializers.FloatField(default=790.0, min_value=50.0)
+    parent_sheet_height_mm = serializers.FloatField(default=1090.0, min_value=50.0)
+    cut_width_mm = serializers.FloatField(default=210.0, min_value=10.0)
+    cut_height_mm = serializers.FloatField(default=297.0, min_value=10.0)
+    margin_mm = serializers.FloatField(default=5.0, min_value=0.0)
+    gripper_mm = serializers.FloatField(default=10.0, min_value=0.0)
+    bleed_mm = serializers.FloatField(default=2.0, min_value=0.0)
+    target_quantity = serializers.IntegerField(default=1000, min_value=1)
+    spoilage_percent = serializers.FloatField(default=3.0, min_value=0.0, max_value=50.0)

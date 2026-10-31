@@ -294,3 +294,56 @@ test('Smart UI: Cambodia Bakong KHQR Modal and GDT Tax Invoice UI State', () => 
   assert.strictEqual(comp.activeTaxInvoiceModal(), false);
   assert.strictEqual(comp.selectedTaxInvoice(), null);
 });
+
+
+test('Smart UI: Sheet Imposition Calculator Presets and Computation UI State', () => {
+  let postedUrl = '';
+  let postedPayload: any = null;
+  const mockHttp = {
+    get: () => of({}),
+    post: (url: string, payload: any) => {
+      postedUrl = url;
+      postedPayload = payload;
+      return of({
+        parent_sheet_width_mm: 790,
+        parent_sheet_height_mm: 1090,
+        cuts_per_sheet: 10,
+        orientation: 'ROTATED_90',
+        parent_sheets_required: 515,
+        efficiency_percent: 72.43,
+        waste_percent: 27.57,
+        layout_svg: '<svg><rect/></svg>',
+      });
+    },
+  } as unknown as HttpClient;
+
+  const injector = Injector.create({
+    providers: [
+      { provide: PbmsI18nService, useClass: PbmsI18nService },
+      { provide: PbmsSessionClient, useValue: new PbmsSessionClient(mockHttp) },
+      { provide: HttpClient, useValue: mockHttp },
+    ],
+  });
+
+  const comp = runInInjectionContext(injector, () => new TenantAppComponent());
+
+  // Test Presets
+  comp.setImpositionPreset('650x900');
+  assert.strictEqual(comp.impositionParentW, 650);
+  assert.strictEqual(comp.impositionParentH, 900);
+
+  comp.setCutPreset('CARD');
+  assert.strictEqual(comp.impositionCutW, 90);
+  assert.strictEqual(comp.impositionCutH, 54);
+
+  // Trigger calculation
+  comp.calculateImposition();
+  assert.ok(postedUrl.includes('/tenant/tools/imposition/'));
+  assert.strictEqual(postedPayload.parent_sheet_width_mm, 650);
+  assert.strictEqual(postedPayload.cut_width_mm, 90);
+  assert.strictEqual(comp.impositionResult()?.cuts_per_sheet, 10);
+  assert.strictEqual(comp.impositionResult()?.parent_sheets_required, 515);
+
+  // Test TOOLS tab accessibility
+  assert.strictEqual(comp.canAccessTab('TOOLS'), true);
+});

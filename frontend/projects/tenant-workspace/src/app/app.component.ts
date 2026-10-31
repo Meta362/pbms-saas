@@ -22,7 +22,8 @@ export type WorkspaceTab =
   | 'INVENTORY'
   | 'INVOICES'
   | 'MEMBERSHIPS'
-  | 'SETTINGS';
+  | 'SETTINGS'
+  | 'TOOLS';
 
 @Component({
   selector: 'pbms-tenant-root',
@@ -93,6 +94,26 @@ export class AppComponent implements OnInit {
     { id: 'outstanding', titleKm: 'បំណុលអតិថិជននៅជំពាក់ (USD)', titleEn: 'Outstanding Balance', icon: '⏳', valueKey: 'outstanding_balance_usd', color: 'text-amber-600 bg-white border-slate-200' },
   ]);
   readonly draggedWidgetIndex = signal<number | null>(null);
+
+  // Imposition Calculator State (PROD-001)
+  impositionParentW = 790;
+  impositionParentH = 1090;
+  impositionCutW = 210;
+  impositionCutH = 297;
+  impositionMargin = 5;
+  impositionGripper = 10;
+  impositionBleed = 2;
+  impositionQty = 5000;
+  impositionSpoilage = 3;
+  readonly impositionResult = signal<any | null>(null);
+  readonly calculatingImposition = signal<boolean>(false);
+
+  // GDT VAT Sales Journal State (REP-001)
+  vatReportYear = new Date().getFullYear();
+  vatReportMonth = new Date().getMonth() + 1;
+  readonly vatJournalData = signal<any | null>(null);
+  readonly loadingVatJournal = signal<boolean>(false);
+
 
   // Form bindings - Settings
   settingsKhrRate = '';
@@ -255,6 +276,8 @@ export class AppComponent implements OnInit {
       case 'MEMBERSHIPS':
         return role === 'TENANT_OWNER';
       case 'SETTINGS':
+        return true;
+      case 'TOOLS':
         return true;
       default:
         return false;
@@ -1060,6 +1083,91 @@ export class AppComponent implements OnInit {
     if (typeof window !== 'undefined') {
       window.print();
     }
+  }
+
+
+  // Imposition & Reporting Methods (PROD-001 & REP-001)
+  setImpositionPreset(preset: string): void {
+    if (preset === '790x1090') { this.impositionParentW = 790; this.impositionParentH = 1090; }
+    else if (preset === '650x900') { this.impositionParentW = 650; this.impositionParentH = 900; }
+    else if (preset === '700x1000') { this.impositionParentW = 700; this.impositionParentH = 1000; }
+    else if (preset === '330x483') { this.impositionParentW = 330; this.impositionParentH = 483; }
+    this.calculateImposition();
+  }
+
+  setCutPreset(preset: string): void {
+    if (preset === 'A4') { this.impositionCutW = 210; this.impositionCutH = 297; }
+    else if (preset === 'A5') { this.impositionCutW = 148; this.impositionCutH = 210; }
+    else if (preset === 'A6') { this.impositionCutW = 105; this.impositionCutH = 148; }
+    else if (preset === 'CARD') { this.impositionCutW = 90; this.impositionCutH = 54; }
+    else if (preset === 'A3') { this.impositionCutW = 297; this.impositionCutH = 420; }
+    this.calculateImposition();
+  }
+
+  calculateImposition(): void {
+    if (this.calculatingImposition()) return;
+    this.calculatingImposition.set(true);
+    const headers = this.session.getHeaders(this.STORAGE_KEY, true);
+    this.http.post<any>(`${API_BASE_URL}/tenant/tools/imposition/`, {
+      parent_sheet_width_mm: Number(this.impositionParentW),
+      parent_sheet_height_mm: Number(this.impositionParentH),
+      cut_width_mm: Number(this.impositionCutW),
+      cut_height_mm: Number(this.impositionCutH),
+      margin_mm: Number(this.impositionMargin),
+      gripper_mm: Number(this.impositionGripper),
+      bleed_mm: Number(this.impositionBleed),
+      target_quantity: Number(this.impositionQty),
+      spoilage_percent: Number(this.impositionSpoilage),
+    }, { headers }).subscribe({
+      next: (res) => {
+        this.calculatingImposition.set(false);
+        this.impositionResult.set(res);
+      },
+      error: (err) => {
+        this.calculatingImposition.set(false);
+        this.handleReadError(err, 'Failed to calculate sheet imposition.');
+      },
+    });
+  }
+
+  loadVatJournal(): void {
+    this.loadingVatJournal.set(true);
+    const headers = this.session.getHeaders(this.STORAGE_KEY, true);
+    this.http.get<any>(`${API_BASE_URL}/tenant/reports/vat-sales-journal/?year=${this.vatReportYear}&month=${this.vatReportMonth}`, { headers }).subscribe({
+      next: (res) => {
+        this.loadingVatJournal.set(false);
+        this.vatJournalData.set(res);
+      },
+      error: (err) => {
+        this.loadingVatJournal.set(false);
+        this.handleReadError(err, 'Failed to load GDT VAT sales journal.');
+      },
+    });
+  }
+
+  downloadVatJournalCsv(): void {
+    const headers = this.session.getHeaders(this.STORAGE_KEY, true);
+    this.http.get(`${API_BASE_URL}/tenant/reports/vat-sales-journal/?year=${this.vatReportYear}&month=${this.vatReportMonth}&export=csv`, {
+      headers,
+      responseType: 'text',
+    }).subscribe({
+      next: (csvText) => {
+        if (typeof window !== 'undefined') {
+          const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8;' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `gdt_vat_sales_journal_${this.vatReportYear}_${String(this.vatReportMonth).padStart(2, '0')}.csv`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        }
+      },
+      error: (err) => {
+        this.handleReadError(err, 'Failed to download GDT VAT CSV journal.');
+      },
+    });
   }
 
 }

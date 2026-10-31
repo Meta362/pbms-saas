@@ -1327,3 +1327,171 @@ class CambodiaBakongKhqrTests(TestCase):
         self._login_as(self.user_b, self.tenant_b)
         cross_res = self.client.get(f"/api/v1/tenant/invoices/{invoice_id}/khqr/")
         self.assertEqual(cross_res.status_code, 404)
+
+
+class CommercialToolsAndReportingTests(TestCase):
+    """
+    PROD-001 & REP-001: Verification of Sheet Imposition Cut Optimizer
+    and GDT Official VAT Sales Journal Reporting.
+    """
+
+    def setUp(self) -> None:
+        self.client = APIClient()
+        ensure_default_plans()
+        self.starter_plan = Plan.objects.get(code="starter")
+
+        self.tenant_a = Tenant.objects.create(
+            name="Angkor Commercial Press",
+            slug="angkor-press",
+            status=TenantStatus.ACTIVE,
+            khr_exchange_rate=Decimal("4100.00"),
+            tax_rate_percent=Decimal("10.00"),
+        )
+        self.tenant_b = Tenant.objects.create(
+            name="Rival Printing Press",
+            slug="rival-press",
+            status=TenantStatus.ACTIVE,
+            khr_exchange_rate=Decimal("4100.00"),
+            tax_rate_percent=Decimal("10.00"),
+        )
+        self.owner_a = User.objects.create_user(
+            email="owner.angkorpress@pbms.local",
+            password="StrongPassword123!",
+            full_name="Angkor Press Owner",
+        )
+        TenantMembership.objects.create(
+            tenant=self.tenant_a,
+            user=self.owner_a,
+            role=TenantRole.TENANT_OWNER,
+            is_active=True,
+        )
+
+        self.designer_a = User.objects.create_user(
+            email="designer.angkorpress@pbms.local",
+            password="StrongPassword123!",
+            full_name="Angkor Press Designer",
+        )
+        TenantMembership.objects.create(
+            tenant=self.tenant_a,
+            user=self.designer_a,
+            role=TenantRole.DESIGNER,
+            is_active=True,
+        )
+
+        now = timezone.now()
+        TenantSubscription.objects.create(
+            tenant=self.tenant_a,
+            plan=self.starter_plan,
+            billing_cycle=BillingCycle.MONTHLY,
+            status=SubscriptionStatus.ACTIVE,
+            current_period_start=now,
+            current_period_end=now + timedelta(days=365),
+        )
+
+        self.customer = Customer.objects.create(
+            tenant=self.tenant_a,
+            name="Phnom Penh Luxury Retail",
+            phone="012445566",
+            company_name="PPLR Ltd",
+        )
+
+    def _login_as(self, user: User, tenant: Tenant) -> None:
+        login_res = self.client.post(
+            "/api/v1/auth/login/",
+            {"email": user.email, "password": "StrongPassword123!"},
+            format="json",
+        )
+        self.assertEqual(login_res.status_code, 200)
+        token = login_res.json()["access_token"]
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+            HTTP_X_TENANT_ID=str(tenant.id),
+        )
+
+    def test_imposition_calculator_api_success_and_math(self) -> None:
+        """
+        PROD-001: Test sheet imposition cut optimizer for 5,000 A4 flyers on 790x1090mm sheet.
+        """
+        self._login_as(self.designer_a, self.tenant_a)
+
+        payload = {
+            "parent_sheet_width_mm": 790.0,
+            "parent_sheet_height_mm": 1090.0,
+            "cut_width_mm": 210.0,
+            "cut_height_mm": 297.0,
+            "margin_mm": 5.0,
+            "gripper_mm": 10.0,
+            "bleed_mm": 2.0,
+            "target_quantity": 5000,
+            "spoilage_percent": 3.0,
+        }
+        res = self.client.post("/api/v1/tenant/tools/imposition/", payload, format="json")
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+
+        self.assertEqual(data["cuts_per_sheet"], 10)
+        self.assertEqual(data["parent_sheets_required"], 515)
+        self.assertGreater(data["efficiency_percent"], 70.0)
+        self.assertIn("<svg", data["layout_svg"])
+        self.assertIn("GRIPPER", data["layout_svg"])
+
+    def test_vat_sales_journal_json_and_csv_export(self) -> None:
+        """
+        REP-001: Test GDT VAT Sales Journal generation and CSV download with BOM.
+        """
+        self._login_as(self.owner_a, self.tenant_a)
+
+        # 1. Generate an invoice by creating and converting a quotation
+        q_res = self.client.post(
+            "/api/v1/tenant/quotations/",
+            {
+                "customer_id": str(self.customer.id),
+                "title": "Corporate Annual Catalogues",
+                "quantity": 1000,
+                "setup_fee_usd": "50.00",
+                "unit_price_usd": "1.5000",
+                "finishing_fee_usd": "50.00",
+                "discount_usd": "0.00",
+            },
+            format="json",
+        )
+        self.assertEqual(q_res.status_code, 201)
+        quote_id = q_res.json()["id"]
+
+        conv_res = self.client.post(
+            f"/api/v1/tenant/quotations/{quote_id}/convert/",
+            {"artwork_file_name": "catalog_final_press.pdf"},
+            format="json",
+        )
+        self.assertEqual(conv_res.status_code, 201)
+
+        # 2. Query VAT Sales Journal as JSON
+        now = timezone.now()
+        report_res = self.client.get(
+            f"/api/v1/tenant/reports/vat-sales-journal/?year={now.year}&month={now.month}"
+        )
+        self.assertEqual(report_res.status_code, 200)
+        data = report_res.json()
+
+        self.assertEqual(data["tenant_name"], "Angkor Commercial Press")
+        self.assertEqual(data["tax_rate_percent"], "10.00")
+        self.assertGreaterEqual(data["invoice_count"], 1)
+        self.assertGreater(Decimal(data["total_sales_amount_usd"]), Decimal("0.00"))
+        self.assertGreater(Decimal(data["total_vat_amount_usd"]), Decimal("0.00"))
+
+        # 3. Query VAT Sales Journal as CSV
+        csv_res = self.client.get(
+            f"/api/v1/tenant/reports/vat-sales-journal/?year={now.year}&month={now.month}&export=csv"
+        )
+        self.assertEqual(csv_res.status_code, 200)
+        self.assertEqual(csv_res["Content-Type"], "text/csv; charset=utf-8")
+        self.assertIn("attachment; filename=", csv_res["Content-Disposition"])
+        csv_text = csv_res.content.decode("utf-8")
+        self.assertTrue(csv_text.startswith("\ufeff"))  # Verify UTF-8 BOM
+        self.assertIn("GDT VAT SALES JOURNAL", csv_text)
+        self.assertIn("Phnom Penh Luxury Retail", csv_text)
+
+        # 4. RBAC Check: DESIGNER role should be forbidden (403) from accessing financial tax journal
+        self._login_as(self.designer_a, self.tenant_a)
+        designer_res = self.client.get("/api/v1/tenant/reports/vat-sales-journal/")
+        self.assertEqual(designer_res.status_code, 403)

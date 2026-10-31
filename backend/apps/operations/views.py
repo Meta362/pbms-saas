@@ -1,3 +1,4 @@
+from django.http import HttpResponse
 from decimal import Decimal
 from django.db import transaction
 from django.db.models import Sum
@@ -10,6 +11,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from apps.core.models import AuditEvent
 from apps.operations.khqr_service import get_invoice_khqr_bundle
+from apps.operations.imposition_service import calculate_sheet_imposition
+from apps.operations.report_service import generate_gdt_vat_sales_journal, generate_vat_sales_journal_csv
 from apps.operations.models import (
     Customer,
     CustomerInvoice,
@@ -34,6 +37,7 @@ from apps.operations.serializers import (
     QuotationCreateSerializer,
     QuotationSerializer,
     SalesOrderSerializer,
+    ImpositionCalculateSerializer,
 )
 from apps.operations.services import (
     calculate_quotation_totals,
@@ -496,3 +500,72 @@ class CustomerInvoiceKhqrAPIView(APIView):
         )
         bundle = get_invoice_khqr_bundle(invoice)
         return Response(bundle, status=status.HTTP_200_OK)
+
+
+class ImpositionCalculatorAPIView(APIView):
+    """
+    PROD-001: Commercial Sheet Imposition & Paper Cut Estimator.
+    Optimizes cutting layout on parent sheets, calculates waste, and returns SVG visualization.
+    """
+    permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "POST": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.SALES_STAFF,
+            TenantRole.DESIGNER,
+            TenantRole.PRODUCTION_STAFF,
+        },
+    }
+
+    def post(self, request: Request) -> Response:
+        serializer = ImpositionCalculateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        d = serializer.validated_data
+        result = calculate_sheet_imposition(
+            parent_width_mm=d["parent_sheet_width_mm"],
+            parent_height_mm=d["parent_sheet_height_mm"],
+            cut_width_mm=d["cut_width_mm"],
+            cut_height_mm=d["cut_height_mm"],
+            margin_mm=d["margin_mm"],
+            gripper_mm=d["gripper_mm"],
+            bleed_mm=d["bleed_mm"],
+            target_quantity=d["target_quantity"],
+            spoilage_percent=d["spoilage_percent"],
+        )
+        return Response(result, status=status.HTTP_200_OK)
+
+
+class VatSalesJournalReportAPIView(APIView):
+    """
+    REP-001: Official GDT (General Department of Taxation) VAT Sales Journal.
+    Generates monthly sales reports in JSON or Excel-compatible UTF-8 CSV with BOM.
+    """
+    permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "GET": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.FINANCE_STAFF,
+        },
+    }
+
+    def get(self, request: Request) -> Response | HttpResponse:
+        year = request.query_params.get("year")
+        month = request.query_params.get("month")
+        export_type = request.query_params.get("export", request.query_params.get("export_format", "json")).lower()
+
+        journal = generate_gdt_vat_sales_journal(
+            tenant=request.tenant,
+            year=int(year) if year and year.isdigit() else None,
+            month=int(month) if month and month.isdigit() else None,
+        )
+
+        if export_type == "csv":
+            csv_str = generate_vat_sales_journal_csv(journal)
+            filename = f"vat_sales_journal_{journal['report_period']}.csv"
+            resp = HttpResponse(csv_str, content_type="text/csv; charset=utf-8")
+            resp["Content-Disposition"] = f'attachment; filename="{filename}"'
+            return resp
+
+        return Response(journal, status=status.HTTP_200_OK)

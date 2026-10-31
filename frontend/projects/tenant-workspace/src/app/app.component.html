@@ -376,6 +376,14 @@
       >
         7. {{ i18n.t('ការកំណត់រោងពុម្ព', 'Tenant Settings') }}
       </button>
+      <button
+        *ngIf="canAccessTab('TOOLS')"
+        type="button"
+        (click)="activeTab = 'TOOLS'; calculateImposition()"
+        [class]="activeTab === 'TOOLS' ? 'px-4 py-2 rounded-lg bg-emerald-700 text-white text-xs font-semibold' : 'px-4 py-2 rounded-lg text-slate-700 hover:bg-slate-100 text-xs font-medium'"
+      >
+        8. {{ i18n.t('ម៉ាស៊ីនគណនាប្លង់កាត់ក្រដាស (Imposition)', 'Sheet Imposition & Cut') }}
+      </button>
     </div>
 
     <div *ngIf="bannerMsg()" class="p-3.5 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs font-medium flex justify-between">
@@ -811,9 +819,26 @@
 
     <!-- TAB 5: CUSTOMER INVOICES & PAYMENT ALLOCATIONS -->
     <div *ngIf="activeTab === 'INVOICES'" class="bg-white p-6 rounded-xl border border-slate-200">
-      <h3 class="font-bold text-sm text-slate-900 mb-4">
-        {{ i18n.t('វិក្កយបត្រអតិថិជន និងការបង់ប្រាក់ (Customer Invoices & Payments)', 'Customer Invoices & Payment Allocation') }}
-      </h3>
+      <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4 pb-3 border-b border-slate-200">
+        <div>
+          <h3 class="font-bold text-sm text-slate-900">
+            {{ i18n.t('វិក្កយបត្រអតិថិជន និងការបង់ប្រាក់ (Customer Invoices & Payments)', 'Customer Invoices & Payment Allocation') }}
+          </h3>
+          <p class="text-xs text-slate-500 mt-0.5">
+            {{ i18n.t('គ្រប់គ្រងវិក្កយបត្រ បាគង KHQR និងរបាយការណ៍អាករ GDT ប្រចាំខែ', 'Manage customer invoices, NBC Bakong KHQR, and monthly GDT VAT journals') }}
+          </p>
+        </div>
+        <div class="flex items-center space-x-2">
+          <button
+            type="button"
+            (click)="downloadVatJournalCsv()"
+            class="px-3 py-1.5 rounded-lg bg-indigo-700 hover:bg-indigo-800 text-white text-xs font-semibold flex items-center space-x-1.5 shadow-sm transition-all"
+          >
+            <span>📥</span>
+            <span>{{ i18n.t('ទាញយករបាយការណ៍អាករ GDT (CSV)', 'Export GDT VAT Journal (CSV)') }}</span>
+          </button>
+        </div>
+      </div>
       <div class="space-y-4">
         <div *ngFor="let inv of invoices()" class="p-4 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
