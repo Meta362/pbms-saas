@@ -1,4 +1,44 @@
 <div class="min-h-screen flex flex-col bg-slate-100">
+  <!-- SuperAdmin Impersonation Support Mode Banner -->
+  <aside *ngIf="impersonationSession() as imp" class="bg-amber-500 text-slate-950 px-6 py-2.5 flex items-center justify-between text-xs font-bold shadow-md z-50">
+    <div class="flex items-center space-x-2">
+      <span class="text-base">⚠️</span>
+      <span>
+        {{ i18n.t('របៀបគាំទ្របច្ចេកទេស (Support Mode): កំពុងត្រួតពិនិត្យហាង «' + imp.tenant_name + '» ក្នុងនាម ' + imp.target_user_email + ' ដោយ ' + imp.impersonator_email, 'Support Mode: Inspecting «' + imp.tenant_name + '» as ' + imp.target_user_email + ' by ' + imp.impersonator_email) }}
+      </span>
+    </div>
+    <button
+      type="button"
+      (click)="exitSupportMode()"
+      class="px-3 py-1 rounded-lg bg-slate-950 text-amber-300 hover:bg-slate-900 text-xs font-bold transition shadow"
+    >
+      🚪 {{ i18n.t('ចាកចេញពី Support Mode', 'Exit Support Mode') }}
+    </button>
+  </aside>
+
+  <!-- Global Platform Broadcast / Announcement Banner -->
+  <aside *ngIf="activeAnnouncement() as ann"
+         [ngClass]="{
+           'bg-sky-600 text-white': ann.level === 'INFO',
+           'bg-amber-600 text-white': ann.level === 'WARNING',
+           'bg-rose-700 text-white': ann.level === 'URGENT'
+         }"
+         class="px-6 py-2.5 flex items-center justify-between text-xs font-semibold shadow-sm z-40">
+    <div class="flex items-center space-x-2">
+      <span class="text-sm">📢</span>
+      <span class="font-bold underline">[{{ ann.title }}]:</span>
+      <span>{{ i18n.lang() === 'km' ? ann.message_km : (ann.message_en || ann.message_km) }}</span>
+    </div>
+    <button
+      type="button"
+      (click)="dismissAnnouncement()"
+      class="text-xs opacity-80 hover:opacity-100 px-2 py-0.5 rounded bg-black/20 font-bold"
+      [title]="i18n.t('បិទផ្ទាំងជូនដំណឹងនេះ', 'Dismiss banner')"
+    >
+      ✕
+    </button>
+  </aside>
+
   <!-- Top Workspace Header -->
   <header class="bg-emerald-900 text-white px-6 py-3.5 shadow-sm flex items-center justify-between">
     <div class="flex items-center space-x-3">

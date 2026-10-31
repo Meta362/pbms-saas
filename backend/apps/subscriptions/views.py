@@ -11,7 +11,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from apps.core.models import AuditEvent
+from apps.core.models import AuditEvent, PlatformAnnouncement
 from apps.operations.services import round_usd
 from apps.subscriptions.models import (
     BillingCycle,
@@ -226,6 +226,8 @@ class SuperAdminOverviewAPIView(APIView):
     permission_classes = [IsAuthenticated, IsPlatformSuperAdminOrSupportReadOnly]
 
     def get(self, request: Request) -> Response:
+        from apps.operations.models import SalesOrder
+
         total_tenants = Tenant.objects.count()
         active_tenants = Tenant.objects.filter(status=TenantStatus.ACTIVE).count()
         pending_tenants = Tenant.objects.filter(status=TenantStatus.PENDING_REVIEW).count()
@@ -236,6 +238,24 @@ class SuperAdminOverviewAPIView(APIView):
             )["total"]
             or Decimal("0.00")
         )
+
+        active_subs = TenantSubscription.objects.filter(status=SubscriptionStatus.ACTIVE).select_related("plan")
+        mrr = Decimal("0.00")
+        for sub in active_subs:
+            if sub.billing_cycle == BillingCycle.ANNUAL:
+                mrr += sub.plan.annual_price_usd / Decimal("12")
+            else:
+                mrr += sub.plan.monthly_price_usd
+
+        total_orders = SalesOrder.objects.count()
+        now = timezone.now()
+        churn_risk_count = TenantSubscription.objects.filter(
+            status=SubscriptionStatus.ACTIVE,
+            current_period_end__lte=now + timedelta(days=7),
+            current_period_end__gte=now,
+        ).count()
+        active_announcements_count = PlatformAnnouncement.objects.filter(is_active=True).count()
+
         recent_audits = [
             {
                 "id": str(ev.id),
@@ -256,6 +276,10 @@ class SuperAdminOverviewAPIView(APIView):
                     "pending_tenants": pending_tenants,
                     "pending_payments": pending_payments,
                     "total_revenue_usd": str(total_revenue),
+                    "mrr_usd": str(round_usd(mrr)),
+                    "total_orders": total_orders,
+                    "churn_risk_count": churn_risk_count,
+                    "active_announcements_count": active_announcements_count,
                 },
                 "recent_audit_events": recent_audits,
             }
@@ -353,6 +377,9 @@ class SuperAdminPaymentReconcileAPIView(APIView):
             tenant = payment.tenant
             tenant.status = TenantStatus.ACTIVE
             tenant.save(update_fields=["status", "updated_at"])
+
+            from apps.operations.preset_service import seed_tenant_master_presets
+            seed_tenant_master_presets(tenant=tenant, actor_user=request.user)
 
             event_type = "SAAS_PAYMENT_APPROVED_TENANT_ACTIVATED"
         else:
@@ -559,3 +586,45 @@ class SuperAdminUsbLicenseRevokeAPIView(APIView):
             {"status": "revoked", "license_id": license_id},
             status=status.HTTP_200_OK,
         )
+
+
+class SuperAdminTenantImpersonateAPIView(APIView):
+    """
+    SuperAdmin Support Mode:
+    Issues a short-lived 15-minute token allowing SuperAdmin to inspect tenant workspace directly.
+    Logs SUPERADMIN_TENANT_IMPERSONATED event.
+    """
+
+    permission_classes = [IsAuthenticated, IsPlatformSuperAdmin]
+
+    def post(self, request: Request, tenant_id: str) -> Response:
+        from apps.accounts.jwt_service import issue_impersonation_token
+
+        try:
+            token_payload = issue_impersonation_token(
+                superadmin_user=request.user,
+                target_tenant_id=tenant_id,
+                ip_address=request.META.get("REMOTE_ADDR"),
+            )
+            return Response(token_payload, status=status.HTTP_200_OK)
+        except Tenant.DoesNotExist:
+            return Response({"detail": "Tenant not found."}, status=status.HTTP_404_NOT_FOUND)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class SuperAdminTenantSeedPresetsAPIView(APIView):
+    """
+    1-Click Master Catalog Presets Seeder for Cambodia printing industry.
+    Seeds standard paper stocks, wide-format flex banner, waterproof sticker, and default customer.
+    """
+
+    permission_classes = [IsAuthenticated, IsPlatformSuperAdmin]
+
+    def post(self, request: Request, tenant_id: str) -> Response:
+        from apps.operations.preset_service import seed_tenant_master_presets
+
+        tenant = get_object_or_404(Tenant, id=tenant_id)
+        result = seed_tenant_master_presets(tenant=tenant, actor_user=request.user)
+        return Response(result, status=status.HTTP_200_OK)
+

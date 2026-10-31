@@ -68,6 +68,26 @@ export class AppComponent implements OnInit {
   readonly memberships = signal<TenantMembershipItem[]>([]);
   readonly settings = signal<TenantSettings | null>(null);
 
+  // SuperAdmin Impersonation Support Mode State
+  readonly impersonationSession = signal<{
+    token: string;
+    tenant_id: string;
+    tenant_name: string;
+    tenant_slug: string;
+    impersonator_email: string;
+    target_user_email: string;
+  } | null>(null);
+
+  // Platform Global Broadcast Announcement State
+  readonly activeAnnouncement = signal<{
+    id: string;
+    title: string;
+    message_km: string;
+    message_en: string;
+    level: 'INFO' | 'WARNING' | 'URGENT';
+    created_at: string;
+  } | null>(null);
+
   private sanitizer = inject(DomSanitizer, { optional: true });
 
   // KHQR Modal State (CAM-001)
@@ -236,12 +256,50 @@ export class AppComponent implements OnInit {
   readonly isFinance = computed<boolean>(() => this.currentRole() === 'FINANCE_STAFF');
 
   ngOnInit(): void {
+    this.loadActiveAnnouncement();
+
+    const impersonationRaw = localStorage.getItem('pbms_impersonation_session');
+    if (impersonationRaw) {
+      try {
+        const imp = JSON.parse(impersonationRaw);
+        this.impersonationSession.set(imp);
+      } catch (e) {
+        localStorage.removeItem('pbms_impersonation_session');
+      }
+    }
+
     const existing = this.session.getStoredUser(this.STORAGE_KEY);
     if (existing && existing.memberships.length > 0) {
       this.user.set(existing);
       this.activeTenantName.set(existing.memberships[0].tenant_name);
       this.fetchTenantContextAndLoad();
+    } else if (this.impersonationSession()) {
+      const imp = this.impersonationSession()!;
+      this.activeTenantName.set(imp.tenant_name);
+      this.fetchTenantContextAndLoad();
     }
+  }
+
+  loadActiveAnnouncement(): void {
+    this.http.get<any>(`${API_BASE_URL}/announcements/active/`).subscribe({
+      next: (res) => {
+        if (res && res.announcement) {
+          this.activeAnnouncement.set(res.announcement);
+        }
+      },
+      error: () => {},
+    });
+  }
+
+  dismissAnnouncement(): void {
+    this.activeAnnouncement.set(null);
+  }
+
+  exitSupportMode(): void {
+    localStorage.removeItem('pbms_impersonation_session');
+    this.impersonationSession.set(null);
+    this.session.clearStorage(this.STORAGE_KEY);
+    window.location.reload();
   }
 
   canAccessTab(tab: WorkspaceTab): boolean {

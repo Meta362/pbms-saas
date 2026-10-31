@@ -382,3 +382,137 @@ class SaaSSubscriptionAndSuperAdminGovernanceTests(TestCase):
             ).status_code,
             403,
         )
+
+    def test_super_admin_tenant_impersonation_support_mode(self) -> None:
+        from apps.core.models import AuditEvent
+        from apps.tenants.models import TenantMembership, TenantRole
+
+        ensure_default_plans()
+        plan = Plan.objects.get(code="starter")
+        tenant = Tenant.objects.create(
+            name="Angkor Support Client",
+            slug="angkor-support-client",
+            status=TenantStatus.ACTIVE,
+        )
+        TenantSubscription.objects.create(
+            tenant=tenant,
+            plan=plan,
+            status=SubscriptionStatus.ACTIVE,
+            billing_cycle=BillingCycle.MONTHLY,
+            current_period_start=timezone.now(),
+            current_period_end=timezone.now() + timedelta(days=30),
+        )
+        shop_owner = User.objects.create_user(
+            email="owner@angkorsupport.local",
+            password="OwnerPassword123!",
+            is_platform_staff=False,
+        )
+        TenantMembership.objects.create(
+            tenant=tenant,
+            user=shop_owner,
+            role=TenantRole.TENANT_OWNER,
+            is_active=True,
+        )
+
+        super_admin = User.objects.create_user(
+            email="admin_impersonate@pbms.local",
+            password="AdminPassword123!",
+            is_platform_staff=True,
+            platform_role=PlatformRole.SUPER_ADMIN,
+        )
+        sa_token = self.client.post(
+            "/api/v1/auth/login/",
+            {"email": "admin_impersonate@pbms.local", "password": "AdminPassword123!"},
+            format="json",
+        ).json()["access_token"]
+
+        # 1. Deny non-superadmin
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {sa_token}")
+        self.client.force_authenticate(user=shop_owner)
+        denied_res = self.client.post(f"/api/v1/super-admin/tenants/{tenant.id}/impersonate/")
+        self.assertEqual(denied_res.status_code, 403)
+
+        # 2. SuperAdmin issues impersonation token
+        self.client.force_authenticate(user=super_admin)
+        imp_res = self.client.post(f"/api/v1/super-admin/tenants/{tenant.id}/impersonate/")
+        self.assertEqual(imp_res.status_code, 200)
+        imp_data = imp_res.json()
+        self.assertTrue(imp_data["is_impersonation"])
+        self.assertEqual(imp_data["tenant_id"], str(tenant.id))
+        self.assertEqual(imp_data["target_user_email"], "owner@angkorsupport.local")
+        self.assertEqual(imp_data["impersonator_email"], "admin_impersonate@pbms.local")
+        self.assertIn("access_token", imp_data)
+
+        # 3. Verify Audit Event logged
+        self.assertTrue(
+            AuditEvent.objects.filter(
+                event_type="SUPERADMIN_TENANT_IMPERSONATED",
+                tenant=tenant,
+                actor_user=super_admin,
+            ).exists()
+        )
+
+        # 4. Use impersonation token with X-Tenant-ID header to access workspace settings
+        self.client.force_authenticate(user=None)
+        imp_token = imp_data["access_token"]
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {imp_token}",
+            HTTP_X_TENANT_ID=str(tenant.id),
+        )
+        settings_res = self.client.get("/api/v1/tenant/settings/")
+        self.assertEqual(settings_res.status_code, 200)
+
+    def test_super_admin_seed_tenant_master_presets(self) -> None:
+        from apps.core.models import AuditEvent
+        from apps.operations.models import Customer, Material
+
+        tenant = Tenant.objects.create(
+            name="New Print Hub",
+            slug="new-print-hub",
+            status=TenantStatus.ACTIVE,
+        )
+        super_admin = User.objects.create_user(
+            email="admin_seeder@pbms.local",
+            password="AdminPassword123!",
+            is_platform_staff=True,
+            platform_role=PlatformRole.SUPER_ADMIN,
+        )
+        self.client.force_authenticate(user=super_admin)
+
+        seed_res = self.client.post(f"/api/v1/super-admin/tenants/{tenant.id}/seed-presets/")
+        self.assertEqual(seed_res.status_code, 200)
+        data = seed_res.json()
+        self.assertEqual(data["tenant_id"], str(tenant.id))
+        self.assertGreater(data["materials_seeded"], 0)
+        self.assertEqual(data["customers_seeded"], 1)
+
+        # Verify materials exist in database for this tenant
+        self.assertTrue(Material.objects.filter(tenant=tenant, sku="MAT-AC-300").exists())
+        self.assertTrue(Material.objects.filter(tenant=tenant, sku="MAT-PP-STICKER").exists())
+        self.assertTrue(Customer.objects.filter(tenant=tenant, phone="012000000").exists())
+
+        # Verify Audit Event logged
+        self.assertTrue(
+            AuditEvent.objects.filter(
+                event_type="TENANT_MASTER_PRESETS_SEEDED",
+                tenant=tenant,
+                actor_user=super_admin,
+            ).exists()
+        )
+
+    def test_super_admin_overview_business_analytics_metrics(self) -> None:
+        super_admin = User.objects.create_user(
+            email="admin_analytics@pbms.local",
+            password="AdminPassword123!",
+            is_platform_staff=True,
+            platform_role=PlatformRole.SUPER_ADMIN,
+        )
+        self.client.force_authenticate(user=super_admin)
+        res = self.client.get("/api/v1/super-admin/overview/")
+        self.assertEqual(res.status_code, 200)
+        metrics = res.json()["metrics"]
+        self.assertIn("mrr_usd", metrics)
+        self.assertIn("total_orders", metrics)
+        self.assertIn("churn_risk_count", metrics)
+        self.assertIn("active_announcements_count", metrics)
+

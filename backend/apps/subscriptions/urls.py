@@ -1,13 +1,15 @@
-﻿from django.urls import path
+from django.urls import path
 from apps.subscriptions.views import (
     PublicPlanListAPIView,
     PublicTenantRegistrationAPIView,
     SuperAdminOverviewAPIView,
     SuperAdminPaymentReconcileAPIView,
+    SuperAdminTenantImpersonateAPIView,
     SuperAdminTenantListAPIView,
+    SuperAdminTenantSeedPresetsAPIView,
     SuperAdminTenantStatusAPIView,
-    SuperAdminUsbLicenseVerifyAPIView,
     SuperAdminUsbLicenseRevokeAPIView,
+    SuperAdminUsbLicenseVerifyAPIView,
 )
 
 urlpatterns = [
@@ -38,6 +40,16 @@ urlpatterns = [
         "super-admin/tenants/<uuid:tenant_id>/status/",
         SuperAdminTenantStatusAPIView.as_view(),
         name="super-admin-tenant-status",
+    ),
+    path(
+        "super-admin/tenants/<uuid:tenant_id>/impersonate/",
+        SuperAdminTenantImpersonateAPIView.as_view(),
+        name="super-admin-tenant-impersonate",
+    ),
+    path(
+        "super-admin/tenants/<uuid:tenant_id>/seed-presets/",
+        SuperAdminTenantSeedPresetsAPIView.as_view(),
+        name="super-admin-tenant-seed-presets",
     ),
     path(
         "super-admin/license/verify/",

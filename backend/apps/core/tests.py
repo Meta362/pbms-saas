@@ -646,3 +646,105 @@ class SuperAdminUsbLicensingSecurityTests(TestCase):
             force_authenticate(req_with_token, user=self.super_admin)
             drf_req_with = Request(req_with_token)
             self.assertTrue(perm.has_permission(drf_req_with, None))
+
+
+class PlatformAnnouncementTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.super_admin = User.objects.create_user(
+            email="superadmin@pbms.local",
+            password="TestAdminPassword123!",
+            is_platform_staff=True,
+            platform_role=PlatformRole.SUPER_ADMIN,
+        )
+        self.regular_user = User.objects.create_user(
+            email="staff@pbms.local",
+            password="TestStaffPassword123!",
+            is_platform_staff=False,
+        )
+
+    def test_active_announcement_public_access(self):
+        from apps.core.models import PlatformAnnouncement
+
+        # Initially no active announcement
+        res = self.client.get("/api/v1/announcements/active/")
+        self.assertEqual(res.status_code, 200)
+        self.assertIsNone(res.json()["announcement"])
+
+        # Create active announcement
+        ann = PlatformAnnouncement.objects.create(
+            title="Scheduled Maintenance",
+            message_km="ប្រព័ន្ធនឹងធ្វើបច្ចុប្បន្នភាពនៅម៉ោង ១២ យប់នេះ",
+            message_en="System update scheduled at 12:00 AM tonight",
+            level="WARNING",
+            is_active=True,
+            created_by=self.super_admin,
+        )
+
+        res2 = self.client.get("/api/v1/announcements/active/")
+        self.assertEqual(res2.status_code, 200)
+        data = res2.json()["announcement"]
+        self.assertIsNotNone(data)
+        self.assertEqual(data["title"], "Scheduled Maintenance")
+        self.assertEqual(data["level"], "WARNING")
+        self.assertEqual(data["message_km"], "ប្រព័ន្ធនឹងធ្វើបច្ចុប្បន្នភាពនៅម៉ោង ១២ យប់នេះ")
+
+    def test_superadmin_announcement_crud_and_permissions(self):
+        from apps.core.models import PlatformAnnouncement, AuditEvent
+
+        # 1. Non-superadmin cannot create announcement
+        self.client.force_authenticate(user=self.regular_user)
+        denied_res = self.client.post(
+            "/api/v1/super-admin/announcements/",
+            {
+                "title": "Unauthorized Banner",
+                "message_km": "តេស្ត",
+                "message_en": "Test",
+                "level": "INFO",
+            },
+            format="json",
+        )
+        self.assertEqual(denied_res.status_code, 403)
+
+        # 2. SuperAdmin can create announcement
+        self.client.force_authenticate(user=self.super_admin)
+        create_res = self.client.post(
+            "/api/v1/super-admin/announcements/",
+            {
+                "title": "New QR Feature",
+                "message_km": "ឥឡូវនេះអ្នកអាចព្រីន QR Code តាមដានការងារបានហើយ",
+                "message_en": "You can now print production tracking QR Codes",
+                "level": "INFO",
+                "is_active": True,
+            },
+            format="json",
+        )
+        self.assertEqual(create_res.status_code, 201)
+        ann_id = create_res.json()["id"]
+
+        self.assertTrue(
+            AuditEvent.objects.filter(
+                event_type="PLATFORM_ANNOUNCEMENT_CREATED",
+                target_id=ann_id,
+            ).exists()
+        )
+
+        # 3. SuperAdmin can list announcements
+        list_res = self.client.get("/api/v1/super-admin/announcements/")
+        self.assertEqual(list_res.status_code, 200)
+        self.assertEqual(len(list_res.json()), 1)
+
+        # 4. SuperAdmin can toggle active status
+        patch_res = self.client.patch(
+            f"/api/v1/super-admin/announcements/{ann_id}/",
+            {"is_active": False},
+            format="json",
+        )
+        self.assertEqual(patch_res.status_code, 200)
+        self.assertFalse(patch_res.json()["is_active"])
+
+        # Now active endpoint returns null
+        res_after = self.client.get("/api/v1/announcements/active/")
+        self.assertEqual(res_after.status_code, 200)
+        self.assertIsNone(res_after.json()["announcement"])
+
