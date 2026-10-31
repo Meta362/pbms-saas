@@ -208,6 +208,35 @@ class Quotation(TimeStampedUUIDModel):
             )
         ]
 
+class QuotationItem(TimeStampedUUIDModel):
+    """
+    DOM-001 & docs/DATABASE.md Section 2.4:
+    Individual itemized line item belonging to a Quotation.
+    """
+
+    tenant = models.ForeignKey(
+        Tenant,
+        on_delete=models.RESTRICT,
+        related_name="quotation_items",
+    )
+    quotation = models.ForeignKey(
+        Quotation,
+        on_delete=models.CASCADE,
+        related_name="items",
+    )
+    item_title = models.CharField(max_length=200)
+    specification_summary = models.TextField(blank=True, default="")
+    quantity = models.PositiveIntegerField(default=1)
+    setup_fee_usd = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    unit_price_usd = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal("0.0000"))
+    finishing_fee_usd = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    subtotal_usd = models.DecimalField(max_digits=14, decimal_places=2)
+
+    class Meta:
+        db_table = "operations_quotationitem"
+        ordering = ["created_at"]
+
+
 
 class SalesOrder(TimeStampedUUIDModel):
     tenant = models.ForeignKey(
@@ -255,6 +284,43 @@ class SalesOrder(TimeStampedUUIDModel):
                 name="uq_tenant_order_number",
             )
         ]
+
+class SalesOrderItem(TimeStampedUUIDModel):
+    """
+    DOM-001 & docs/DATABASE.md Section 2.4:
+    Individual itemized line item belonging to a confirmed SalesOrder.
+    """
+
+    tenant = models.ForeignKey(
+        Tenant,
+        on_delete=models.RESTRICT,
+        related_name="sales_order_items",
+    )
+    sales_order = models.ForeignKey(
+        SalesOrder,
+        on_delete=models.CASCADE,
+        related_name="items",
+    )
+    quotation_item = models.ForeignKey(
+        QuotationItem,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="sales_order_items",
+    )
+    item_title = models.CharField(max_length=200)
+    specification_summary = models.TextField(blank=True, default="")
+    quantity = models.PositiveIntegerField(default=1)
+    setup_fee_usd = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    unit_price_usd = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal("0.0000"))
+    finishing_fee_usd = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    subtotal_usd = models.DecimalField(max_digits=14, decimal_places=2)
+    artwork_file_name = models.CharField(max_length=255, blank=True, default="")
+
+    class Meta:
+        db_table = "operations_salesorderitem"
+        ordering = ["created_at"]
+
 
 
 class ProductionJob(TimeStampedUUIDModel):

@@ -13,7 +13,8 @@
     "build:all": "npm run build:public && npm run build:admin && npm run build:tenant",
     "test:helpers": "node --test --experimental-strip-types tests/session-recovery.test.ts",
     "test:real": "npx esbuild tests/real-session-regression.test.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/test-suite.mjs && node --test dist/test-suite.mjs",
-    "test": "npm run test:helpers && npm run test:real"
+    "test:kanban": "npx esbuild tests/smart-ui-kanban.test.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/test-kanban.mjs && node --test dist/test-kanban.mjs",
+    "test": "npm run test:helpers && npm run test:real && npm run test:kanban"
   },
   "dependencies": {
     "@angular/animations": "19.2.0",

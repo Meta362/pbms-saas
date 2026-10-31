@@ -1,4 +1,4 @@
-﻿from decimal import Decimal
+from decimal import Decimal
 from django.conf import settings
 from django.db import models
 from apps.core.models import TimeStampedUUIDModel
@@ -43,6 +43,16 @@ class Tenant(TimeStampedUUIDModel):
         max_digits=5,
         decimal_places=2,
         default=Decimal("0.00"),
+    )
+    is_tax_registered = models.BooleanField(
+        default=True,
+        help_text="True if registered with GDT for 10% VAT. False for non-registered family/small print shops.",
+    )
+    tax_id_number = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+        help_text="Official GDT Tax Identification Number (TIN).",
     )
 
     class Meta:

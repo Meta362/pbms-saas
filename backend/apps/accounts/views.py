@@ -53,6 +53,7 @@ def _serialize_user_memberships(user) -> list[dict]:
 
 class LoginAPIView(APIView):
     permission_classes = [AllowAny]
+    throttle_scope = "auth_login" 
 
     def post(self, request: Request) -> Response:
         serializer = LoginRequestSerializer(data=request.data)
@@ -98,6 +99,7 @@ class LoginAPIView(APIView):
 
 class RefreshTokenAPIView(APIView):
     permission_classes = [AllowAny]
+    throttle_scope = "auth_refresh" 
 
     def post(self, request: Request) -> Response:
         serializer = RefreshTokenRequestSerializer(data=request.data)
@@ -135,6 +137,43 @@ class LogoutAPIView(APIView):
             ip_address=_get_client_ip(request),
         )
         return Response({"status": "revoked"}, status=status.HTTP_200_OK)
+
+
+class LogoutAllAPIView(APIView):
+    """
+    REQ-AUTH-04: Revokes all active AuthSession records for the authenticated user across all devices.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request: Request) -> Response:
+        user = request.user
+        now = timezone.now()
+        active_sessions = AuthSession.objects.filter(
+            user=user,
+            is_revoked=False,
+            expires_at__gt=now,
+        )
+        revoked_count = active_sessions.update(
+            is_revoked=True,
+            revoked_at=now,
+            revoked_reason="ALL_SESSIONS_LOGOUT",
+            updated_at=now,
+        )
+
+        AuditEvent.objects.create(
+            actor_user=user,
+            event_type="AUTH_LOGOUT_ALL",
+            target_model="accounts.User",
+            target_id=str(user.id),
+            ip_address=_get_client_ip(request),
+            metadata={"revoked_sessions_count": revoked_count},
+        )
+        return Response(
+            {"status": "revoked_all", "sessions_revoked": revoked_count},
+            status=status.HTTP_200_OK,
+        )
 
 
 class CurrentUserAPIView(APIView):

@@ -1,72 +1,110 @@
-﻿# Printing Business Management System (PBMS) — Multi-Tenant SaaS
+# 🖨️ PBMS SaaS — Printing Business Management System (2026 Edition)
 
-Production-oriented B2B Printing Business Management System SaaS built with **Three Independent Angular + Tailwind CSS Frontends** and **One Shared Authoritative Django REST Framework + PostgreSQL Backend API**.
+![Python](https://img.shields.io/badge/Python-3.12-blue?logo=python)
+![Django](https://img.shields.io/badge/Django-5.2-092E20?logo=django)
+![Angular](https://img.shields.io/badge/Angular-19-DD0031?logo=angular)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791?logo=postgresql)
+![TailwindCSS](https://img.shields.io/badge/TailwindCSS-3.4-38B2AC?logo=tailwind-css)
+![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker)
+![License](https://img.shields.io/badge/License-Proprietary-red)
 
----
-
-## 1. Architecture & Applications Overview
-
-| Application | Path | Local Port | Purpose |
-| :--- | :--- | :--- | :--- |
-| **Shared Backend API** | `backend/` | `8000` | Django 5.2 + DRF + PostgreSQL 18 API (`/api/v1/`, Swagger: `/api/docs/`) |
-| **Frontend C (Public Site)** | `frontend/projects/public-site` | `4200` | Marketing, subscription plan comparison, and idempotent tenant registration |
-| **Frontend A (Super Admin)** | `frontend/projects/super-admin` | `4201` | Platform KPIs, tenant review, payment reconciliation, and immutable audit logs |
-| **Frontend B (Tenant Workspace)**| `frontend/projects/tenant-workspace` | `4202` | Printing business operations: Customers, Quotations, Orders, Production Jobs, Stock Ledger, Invoices |
-| **Shared Frontend Library** | `frontend/projects/pbms-shared` | N/A | Shared TypeScript contracts, JWT session/refresh client, `X-Tenant-ID` headers, and Khmer/English i18n |
+A production-grade, multi-tenant B2B Printing SaaS engineered specifically for print houses, commercial offset presses, and digital print shops in Cambodia. Built with **Three Independent Angular 19 Standalone Frontends** and **One Shared Authoritative Django REST Framework + PostgreSQL Backend API**.
 
 ---
 
-## 2. Core Security & Domain Invariants (DO NOT BYPASS WHEN UPSCALING)
+## 🏗️ 1. Architecture & Port Topology
 
-1. **Password Hashing:** `Argon2id` (`Argon2PasswordHasher`) is mandatory (`REQ-AUTH-01`).
-2. **Session & JWT Rotation:** Access tokens (15m) and Rotating Refresh tokens (7d) are backed by PostgreSQL `accounts_authsession`. Reusing a rotated refresh token immediately revokes the entire session family (`REQ-AUTH-02`, `REQ-AUTH-03`, `REQ-AUTH-04`).
-3. **Strict Multi-Tenant Isolation:** Tenant endpoints in `Frontend B` require `HasActiveTenantMembership` which resolves `request.tenant` strictly from the `X-Tenant-ID` header validated against `tenants_tenantmembership` in PostgreSQL (`REQ-RBAC-02`, `REQ-RBAC-03`).
-4. **Financial & Inventory Integrity:**
-   - All monetary fields use fixed-point `Decimal` (`USD` 2 decimals, `KHR` rounded to nearest `100` Riel).
-   - Material stock (`operations_material.current_stock`) MUST only be mutated through `record_inventory_movement()` which writes an immutable `InventoryTransaction` ledger entry and prevents negative stock.
+| Portal / Service | Path | Local Port | Key Capabilities |
+| :--- | :--- | :---: | :--- |
+| **Shared Backend API** | `backend/` | `8000` | Django 5.2 + DRF + PostgreSQL API (`/api/v1/`, Swagger: `/api/schema/swagger-ui/`) |
+| **Frontend C (Public SaaS Site)** | `frontend/projects/public-site` | `4200` | Marketing landing, 4-tier pricing (Solo, Starter, Growth, Enterprise), and onboarding |
+| **Frontend A (Super Admin)** | `frontend/projects/super-admin` | `4201` | Platform KPIs, KHQR payment reconciliation, tenant provisioning, and preset seeders |
+| **Frontend B (Tenant Workspace)** | `frontend/projects/tenant-workspace` | `4202` | Production Kanban board, multi-item quotes, GDT Tax Invoices, Bakong KHQR, Stock Ledger |
+| **Shared Frontend Core** | `frontend/projects/pbms-shared` | N/A | TypeScript contracts, JWT auto-refresh interceptor, `X-Tenant-ID` resolver, Khmer/English i18n |
 
 ---
 
-## 3. Quick Start (Windows PowerShell)
+## 🌟 2. Core Printing & Enterprise Capabilities
 
-### Start All 4 Services
-```powershell
-powershell -ExecutionPolicy Bypass -File .\ops\start_all_services.ps1
+* **🇰🇭 NBC Bakong KHQR Payment (CAM-001):** Native EMVCo-compliant KHQR dynamic generation in both USD and KHR for instant mobile banking checkout.
+* **📜 Dual Tax Regime (GDT VAT 10% vs. Family Shop 0%):**
+  * **Family Print Shop (អាជីវកម្មគ្រួសារ):** Locked at 0.00% VAT, outputs General Commercial Cash Receipts.
+  * **VAT Registered Enterprise (រោងពុម្ពចុះបញ្ជី):** Official GDT Tax Invoices with VATTIN and monthly VAT Sales Journal (CSV UTF-8 BOM).
+* **🎛️ Drag-and-Drop Production Kanban Board:** Real-time job state transitions (`PENDING` ➔ `PRE_PRESS` ➔ `PRINTING` ➔ `FINISHING` ➔ `QC` ➔ `COMPLETED`).
+* **📐 Sheet Imposition & Cut Optimizer (PROD-001):** Combinatorial cut calculator for parent sheets (790x1090mm, 650x900mm) with gripper and bleed margins.
+* **🛡️ Concurrent Active Session Limiting:** Prevents unauthorized account-sharing on smaller tiers (auto-revokes oldest session when limit exceeded).
+* **📦 Double-Entry Stock Ledger:** Immutable PostgreSQL ledger with strict non-negative constraints (`chk_material_stock_non_negative`).
+
+---
+
+## 🚀 3. Quick Start
+
+### ជម្រើសទី ១: Double-Click Launcher (Windows)
+គ្រាន់តែចុច **Double-click** លើ file **[`start-pbms.bat`](start-pbms.bat)** នៅក្នុង Root Directory វានឹងបើកដំណើរការ Server ទាំង ៤ ដោយស្វ័យប្រវត្តិ!
+
+### ជម្រើសទី ២: Docker Compose (100% Offline University Demo)
+```bash
+docker compose up -d
 ```
 
-**Demo Credentials (Seeded via `python manage.py seed_pbms_demo`)**
-*Note: These seeded demo accounts are for local development only. Do not use or expose these credentials in any deployed or production environments.*
+### ជម្រើសទី ៣: Manual Local Startup
 
-Super Admin Portal (http://localhost:4201):
-Email: admin@pbms.local
-Password: Admin@PBMS2026
+**Backend Server (Port 8000):**
+```powershell
+backend\.venv\Scripts\python.exe backend\manage.py seed_pbms_demo
+backend\.venv\Scripts\python.exe backend\manage.py runserver 0.0.0.0:8000
+```
 
-Tenant Workspace (http://localhost:4202 — Angkor Printing House):
-Email: owner@angkorprint.com
-Password: Owner@PBMS2026
+**Frontend Applications:**
+```powershell
+Set-Location frontend
+npm run start:tenant   # Tenant Workspace on http://localhost:4202
+npm run start:public   # Public SaaS Website on http://localhost:4200
+npm run start:admin    # Super Admin on http://localhost:4201
+```
 
-Run Backend Tests (PostgreSQL)
-code
-Powershell
-Set-Location backend
-.\.venv\Scripts\python.exe manage.py test apps.core apps.accounts apps.subscriptions apps.operations -v 2
-Build All 3 Frontends
-code
-Powershell
+---
+
+## 🔑 4. Demo Accounts & Credentials
+
+*(Seeded automatically via `python manage.py seed_pbms_demo`)*
+
+| Portal | URL | Email | Password |
+| :--- | :--- | :--- | :--- |
+| **Tenant Workspace** | [http://localhost:4202](http://localhost:4202) | `owner@angkorprint.com` | `Password-2026!` |
+| **Super Admin Console** | [http://localhost:4201](http://localhost:4201) | `admin@pbms.local` | `Password-2026!` |
+| **Public Landing** | [http://localhost:4200](http://localhost:4200) | *(Public Access)* | *(No auth required)* |
+
+> ⚡ **Tip:** ផ្ទាំង Login ទាំងសងខាងមានប៊ូតុង **"1-Click Instant Demo Login"** គ្រាន់តែចុចលើឈ្មោះគណនីគឺ Login ចូលភ្លាមៗដោយពុំបាច់វាយពាក្យសម្ងាត់ឡើយ!
+
+---
+
+## 🧪 5. Testing & Verification
+
+### Run Backend PostgreSQL Test Suite (73 Tests)
+```powershell
+backend\.venv\Scripts\python.exe backend\manage.py test apps.core apps.accounts apps.subscriptions apps.operations apps.tenants
+```
+
+### Run Frontend Unit & Regression Suite (44 Tests)
+```powershell
+Set-Location frontend
+npm run test
+```
+
+### Build All 3 Production Bundles
+```powershell
 Set-Location frontend
 npm run build:all
-Run Encrypted Backup & Restore Verification Drill
-code
-Powershell
-powershell -ExecutionPolicy Bypass -File .\ops\backup_postgres.ps1
-powershell -ExecutionPolicy Bypass -File .\ops\verify_restore.ps1
-4. Canonical Engineering Documentation (docs/)
-docs/PROJECT_BIBLE.md — Vision, terminology, and locked architectural decisions.
-docs/REQUIREMENTS.md — Functional and non-functional requirements catalog.
-docs/ARCHITECTURE.md — System topology and tenant resolution flow.
-docs/DATABASE.md — PostgreSQL schema, constraints, and ledger rules.
-docs/RBAC.md — Platform vs. Tenant role matrix.
-docs/SECURITY.md — Threat controls, Argon2id, and token reuse detection.
-docs/API_CONTRACT.md — REST API endpoint catalog.
-docs/BACKUP.md — AES-256 backup and restore verification specification.
-docs/TESTING.md — Executed test catalog and verification evidence.
+```
+
+---
+
+## 📚 6. Engineering Documentation (`docs/`)
+
+* [docs/DEPLOYMENT_GUIDE_FREE.md](docs/DEPLOYMENT_GUIDE_FREE.md) — ការណែនាំ Deploy លើ Cloud ចំណាយ $0 (Neon + Render + Vercel) & Google Cloud Credit $10
+* [docs/CURRENT_SYSTEM_CAPABILITIES_KM.md](docs/CURRENT_SYSTEM_CAPABILITIES_KM.md) — របាយការណ៍លម្អិតអំពីសមត្ថភាពប្រព័ន្ធទាំងមូលជាភាសាខ្មែរ
+* [docs/PROJECT_BIBLE.md](docs/PROJECT_BIBLE.md) — គោលការណ៍ស្ថាបត្យកម្ម និង Invariants
+* [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) — បញ្ជីតម្រូវការមុខងារ និងសុវត្ថិភាព
+* [docs/DATABASE.md](docs/DATABASE.md) — PostgreSQL Schema, Check Constraints & Stock Ledger
+* [docs/SECURITY.md](docs/SECURITY.md) — Argon2id, JWT Rotation, Audit Trails & USB Dongle / TOTP

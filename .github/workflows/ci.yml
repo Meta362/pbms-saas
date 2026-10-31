@@ -49,8 +49,12 @@ jobs:
 
       - name: Run Django Checks
         env:
-          DJANGO_SECRET_KEY: ci-only-django-secret-key-12345
+          DJANGO_SECRET_KEY: ci-only-django-secret-key-that-is-long-enough-and-secure-12345
+          JWT_SIGNING_KEY: ci-only-jwt-signing-key-distinct-from-django-secret-key-12345
+          SUPERADMIN_LICENSE_SIGNING_KEY: ci-only-superadmin-license-key-distinct-from-secrets-98765
+          DJANGO_ALLOWED_HOSTS: pbms.example.com
           DJANGO_DEBUG: False
+          DJANGO_SECURE_SSL_REDIRECT: False
           DB_ENGINE: django.db.backends.postgresql
           POSTGRES_DB: pbms_test_db
           POSTGRES_USER: ci_user
@@ -63,8 +67,12 @@ jobs:
 
       - name: Run Backend Tests
         env:
-          DJANGO_SECRET_KEY: ci-only-django-secret-key-12345
+          DJANGO_SECRET_KEY: ci-only-django-secret-key-that-is-long-enough-and-secure-12345
+          JWT_SIGNING_KEY: ci-only-jwt-signing-key-distinct-from-django-secret-key-12345
+          SUPERADMIN_LICENSE_SIGNING_KEY: ci-only-superadmin-license-key-distinct-from-secrets-98765
+          DJANGO_ALLOWED_HOSTS: pbms.example.com
           DJANGO_DEBUG: False
+          DJANGO_SECURE_SSL_REDIRECT: False
           DB_ENGINE: django.db.backends.postgresql
           POSTGRES_DB: pbms_test_db
           POSTGRES_USER: ci_user
@@ -73,7 +81,7 @@ jobs:
           POSTGRES_PORT: 5432
         run: |
           cd backend
-          python manage.py test apps.core apps.accounts apps.subscriptions apps.operations -v 2
+          python manage.py test apps.core apps.accounts apps.subscriptions apps.operations apps.tenants -v 2
 
   frontend-tests:
     name: Frontend Tests and Build

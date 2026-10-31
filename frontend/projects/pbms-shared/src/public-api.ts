@@ -47,6 +47,8 @@ export interface TenantContext {
   base_currency: string;
   khr_exchange_rate: string;
   tax_rate_percent: string;
+  is_tax_registered?: boolean;
+  tax_id_number?: string;
 }
 
 export interface TenantSettings {
@@ -56,6 +58,8 @@ export interface TenantSettings {
   base_currency: string;
   khr_exchange_rate: string;
   tax_rate_percent: string;
+  is_tax_registered: boolean;
+  tax_id_number: string;
   updated_at: string;
 }
 

@@ -35,48 +35,131 @@
     </div>
   </header>
 
-  <!-- Login Screen if not authenticated -->
-  <main *ngIf="!user()" class="flex-1 flex items-center justify-center p-6">
-    <div class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-xl">
-      <h2 class="text-xl font-bold text-white mb-2">
-        {{ i18n.t('ចូលប្រើប្រាស់ Super Admin Portal', 'Super Admin Portal Login') }}
-      </h2>
-      <p class="text-xs text-slate-400 mb-6">
-        {{ i18n.t('គណនីគំរូ៖ admin@pbms.local / ពាក្យសម្ងាត់៖ Admin@PBMS2026', 'Demo Account: admin@pbms.local / Password: Admin@PBMS2026') }}
-      </p>
+  <!-- Login Screen if not authenticated (2026 Cyber Governance Console) -->
+  <main *ngIf="!user()" class="flex-1 relative flex items-center justify-center p-4 sm:p-8 bg-gradient-to-br from-slate-950 via-slate-900 to-rose-950/40 overflow-hidden">
+    <!-- Ambient Rose/Indigo Glow Effects -->
+    <div class="absolute -top-32 -right-32 w-96 h-96 bg-rose-600/15 rounded-full blur-3xl pointer-events-none"></div>
+    <div class="absolute -bottom-32 -left-32 w-96 h-96 bg-indigo-600/15 rounded-full blur-3xl pointer-events-none"></div>
 
-      <div *ngIf="errorMsg()" class="mb-4 p-3 rounded-lg bg-rose-950/80 border border-rose-700 text-rose-200 text-xs">
-        {{ errorMsg() }}
+    <div class="w-full max-w-lg relative z-10">
+      <div class="bg-slate-900/90 backdrop-blur-2xl border border-slate-800 rounded-3xl p-6 sm:p-9 shadow-2xl relative overflow-hidden">
+        <!-- Top Security Stripe -->
+        <div class="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-rose-600 via-amber-500 to-indigo-600"></div>
+
+        <!-- Brand / Header -->
+        <div class="flex items-center justify-between mb-6 pt-2">
+          <div class="flex items-center space-x-3">
+            <div class="w-12 h-12 rounded-2xl bg-gradient-to-tr from-rose-600 to-indigo-600 flex items-center justify-center text-white font-black text-xl shadow-lg shadow-rose-600/30">
+              🛡️
+            </div>
+            <div>
+              <div class="flex items-center space-x-2">
+                <span class="font-extrabold text-lg sm:text-xl text-white tracking-tight">SuperAdmin Plane</span>
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider bg-rose-500/20 text-rose-400 border border-rose-500/30 uppercase">
+                  Root Console
+                </span>
+              </div>
+              <p class="text-xs text-slate-400 font-medium">
+                {{ i18n.t('មជ្ឈមណ្ឌលគ្រប់គ្រងវេទិកា និងសុវត្ថិភាព • Platform Brain', 'Central SaaS Governance, Tenants & Licensing Control') }}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            (click)="i18n.toggleLanguage()"
+            class="px-2.5 py-1 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-xs font-medium text-slate-300 transition"
+          >
+            {{ i18n.lang() === 'km' ? '🌐 English' : '🌐 ភាសាខ្មែរ' }}
+          </button>
+        </div>
+
+        <!-- One-Click Instant Demo Credentials Badge -->
+        <div class="mb-6 p-4 rounded-2xl bg-slate-950/80 border border-slate-800/90">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+              <span>⚡</span> {{ i18n.t('ចុចចូលសាកល្បងភ្លាមៗ (Quick Root Access):', 'Instant Root Demo Login:') }}
+            </span>
+            <span class="text-[10px] text-rose-400 font-mono">Password-2026!</span>
+          </div>
+          <button
+            type="button"
+            (click)="quickLogin('admin@pbms.local', 'Password-2026!')"
+            class="w-full group p-3 rounded-xl bg-slate-900/90 hover:bg-rose-950/40 border border-slate-800 hover:border-rose-500/50 text-left transition flex items-center justify-between"
+          >
+            <div class="flex items-center space-x-3">
+              <span class="text-lg">👑</span>
+              <div>
+                <div class="text-xs font-bold text-white group-hover:text-rose-300 transition">Platform Super Admin</div>
+                <div class="text-[10px] text-slate-400">admin&#64;pbms.local</div>
+              </div>
+            </div>
+            <span class="text-xs text-rose-400 font-semibold group-hover:translate-x-1 transition">1-Click Sign In ➜</span>
+          </button>
+        </div>
+
+        <div *ngIf="errorMsg()" class="mb-5 p-3.5 rounded-2xl bg-rose-950/80 border border-rose-700 text-rose-200 text-xs flex items-center gap-2">
+          <span>⚠️</span>
+          <span>{{ errorMsg() }}</span>
+        </div>
+
+        <!-- Manual Login Form -->
+        <form (ngSubmit)="login()" class="space-y-4">
+          <div>
+            <label class="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center gap-1.5">
+              <span>✉️</span> {{ i18n.t('អ៊ីមែលអ្នកគ្រប់គ្រង (Admin Email)', 'Platform Operator Email') }}
+            </label>
+            <input
+              type="email"
+              name="email"
+              [(ngModel)]="email"
+              required
+              placeholder="e.g. admin@pbms.local"
+              class="w-full rounded-xl bg-slate-950/90 border border-slate-700 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20 px-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition"
+            />
+          </div>
+
+          <div>
+            <div class="flex items-center justify-between mb-1.5">
+              <label class="block text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                <span>🔒</span> {{ i18n.t('ពាក្យសម្ងាត់ (Argon2id)', 'Password (Argon2id)') }}
+              </label>
+              <button
+                type="button"
+                (click)="showPassword.set(!showPassword())"
+                class="text-[11px] text-slate-400 hover:text-rose-400 transition"
+              >
+                {{ showPassword() ? '🙈 Hide' : '👁️ Show' }}
+              </button>
+            </div>
+            <input
+              [type]="showPassword() ? 'text' : 'password'"
+              name="password"
+              [(ngModel)]="password"
+              required
+              placeholder="••••••••••••"
+              class="w-full rounded-xl bg-slate-950/90 border border-slate-700 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20 px-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition font-mono"
+            />
+          </div>
+
+          <button
+            type="submit"
+            class="w-full mt-2 py-3 px-5 rounded-2xl bg-gradient-to-r from-rose-600 via-rose-700 to-indigo-700 hover:from-rose-500 hover:to-indigo-600 text-white font-bold text-sm shadow-lg shadow-rose-600/30 hover:shadow-rose-600/50 transition-all flex items-center justify-center gap-2"
+          >
+            <span>{{ i18n.t('ចូលគ្រប់គ្រងប្រព័ន្ធ (Authenticate)', 'Authenticate as Super Admin') }}</span>
+            <span>➜</span>
+          </button>
+        </form>
+
+        <!-- Compliance Footer -->
+        <div class="mt-6 pt-5 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
+          <span class="flex items-center gap-1">
+            <span class="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
+            Hardware Dongle / TOTP Ready
+          </span>
+          <span>Zero-Trust RBAC</span>
+          <span>Immutable Audit Logs</span>
+        </div>
       </div>
-
-      <form (ngSubmit)="login()" class="space-y-4">
-        <div>
-          <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Email</label>
-          <input
-            type="email"
-            name="email"
-            [(ngModel)]="email"
-            required
-            class="w-full rounded-lg bg-slate-950 border border-slate-700 px-3.5 py-2 text-sm text-white focus:border-rose-500 focus:outline-none"
-          />
-        </div>
-        <div>
-          <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Password (Argon2id)</label>
-          <input
-            type="password"
-            name="password"
-            [(ngModel)]="password"
-            required
-            class="w-full rounded-lg bg-slate-950 border border-slate-700 px-3.5 py-2 text-sm text-white focus:border-rose-500 focus:outline-none"
-          />
-        </div>
-        <button
-          type="submit"
-          class="w-full py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-semibold text-sm transition"
-        >
-          {{ i18n.t('ចូលគ្រប់គ្រងប្រព័ន្ធ (Authenticate)', 'Sign In as Super Admin') }}
-        </button>
-      </form>
     </div>
   </main>
 
@@ -92,27 +175,94 @@
       <button type="button" (click)="actionBanner.set('')" class="text-xs underline">Close</button>
     </div>
 
+    <!-- SuperAdmin USB Security Key Dongle Hardware Panel -->
+    <div class="p-5 rounded-2xl bg-gradient-to-r from-slate-900 to-slate-950 border border-slate-800 shadow-lg">
+      <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div class="flex items-center space-x-3">
+          <div class="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg"
+               [ngClass]="usbStatus() === 'VERIFIED' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30' : 'bg-rose-600/20 text-rose-400 border border-rose-500/30'">
+            🛡️
+          </div>
+          <div>
+            <div class="flex items-center space-x-2">
+              <h3 class="font-bold text-sm text-white">
+                {{ i18n.t('សោរសុវត្ថិភាព USB Hardware Licensing (SuperAdmin Security Dongle)', 'SuperAdmin USB Hardware Security Dongle') }}
+              </h3>
+              <span *ngIf="usbStatus() === 'VERIFIED'" class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-900 text-emerald-300 border border-emerald-700">
+                ACTIVE & VERIFIED
+              </span>
+              <span *ngIf="usbStatus() === 'NOT_ATTACHED'" class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-900 text-amber-300 border border-amber-700">
+                INSERT USB DRIVE
+              </span>
+              <span *ngIf="usbStatus() === 'INVALID'" class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-900 text-rose-300 border border-rose-700">
+                VERIFICATION REJECTED
+              </span>
+            </div>
+            <p class="text-xs text-slate-400 mt-0.5">
+              {{ i18n.t('តម្រូវឱ្យមាន USB Flash Drive ដែលមានហត្ថលេខា license.dat ភ្ជាប់ជាមួយ Serial សម្ភារៈពិតប្រាកដ។', 'Requires an inserted USB flash drive with signed license.dat cryptographically bound to hardware volume serial.') }}
+            </p>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-3">
+          <div class="flex items-center space-x-2">
+            <label class="text-xs text-slate-400">Vol Serial:</label>
+            <input
+              type="text"
+              [(ngModel)]="usbHardwareSerial"
+              class="w-24 px-2 py-1 bg-slate-950 border border-slate-700 rounded text-xs font-mono text-slate-200"
+              placeholder="A4B27F91"
+            />
+          </div>
+          <label class="cursor-pointer px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center space-x-1.5 shadow">
+            <span>💾 {{ i18n.t('ភ្ជាប់ license.dat ពី USB', 'Select license.dat from USB') }}</span>
+            <input type="file" (change)="onUsbFileSelected($event)" accept=".dat,.json" class="hidden" />
+          </label>
+        </div>
+      </div>
+
+      <div *ngIf="usbLicense() as lic" class="mt-4 pt-4 border-t border-slate-800/80 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+        <div class="text-slate-300">
+          <span class="text-slate-500">License ID:</span> <span class="font-mono text-indigo-300">{{ lic.license_id }}</span>
+        </div>
+        <div class="text-slate-300">
+          <span class="text-slate-500">Issued To:</span> <span class="text-slate-200">{{ lic.issued_to }}</span>
+        </div>
+        <div class="text-slate-300">
+          <span class="text-slate-500">Expires:</span> <span class="text-emerald-400 font-mono">{{ lic.expires_at | date:'medium' }}</span>
+        </div>
+      </div>
+
+      <div *ngIf="usbError()" class="mt-3 p-2.5 rounded-lg bg-rose-950/80 border border-rose-800 text-rose-300 text-xs font-mono">
+        ❌ {{ usbError() }}
+      </div>
+    </div>
+
     <!-- KPI Cards -->
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4" *ngIf="overview() as ov">
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4" *ngIf="overview() as ov">
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
         <div class="text-xs text-slate-400">{{ i18n.t('ហាងបោះពុម្ពសរុប', 'Total Tenants') }}</div>
         <div class="text-2xl font-bold text-white mt-1">{{ ov.metrics.total_tenants }}</div>
       </div>
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
-        <div class="text-xs text-slate-400">{{ i18n.t('ហាងកំពុងដំណើរការ (Active)', 'Active Tenants') }}</div>
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+        <div class="text-xs text-slate-400">{{ i18n.t('ហាងសកម្ម (Active)', 'Active Tenants') }}</div>
         <div class="text-2xl font-bold text-emerald-400 mt-1">{{ ov.metrics.active_tenants }}</div>
       </div>
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
-        <div class="text-xs text-slate-400">{{ i18n.t('រង់ចាំការអនុម័ត (Pending)', 'Pending Review') }}</div>
-        <div class="text-2xl font-bold text-amber-400 mt-1">{{ ov.metrics.pending_tenants }}</div>
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+        <div class="text-xs text-slate-400">{{ i18n.t('ចំណូលប្រចាំខែ (MRR)', 'Monthly Recurring (MRR)') }}</div>
+        <div class="text-2xl font-bold text-sky-400 mt-1">${{ ov.metrics.mrr_usd || '0.00' }}</div>
       </div>
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
-        <div class="text-xs text-slate-400">{{ i18n.t('ការបង់ប្រាក់រង់ចាំពិនិត្យ', 'Pending Payments') }}</div>
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+        <div class="text-xs text-slate-400">{{ i18n.t('ការងារបញ្ជាទិញសរុប', 'Total Orders') }}</div>
+        <div class="text-2xl font-bold text-purple-400 mt-1">{{ ov.metrics.total_orders ?? 0 }}</div>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+        <div class="text-xs text-slate-400">{{ i18n.t('ការបង់ប្រាក់រង់ចាំ', 'Pending Payments') }}</div>
         <div class="text-2xl font-bold text-rose-400 mt-1">{{ ov.metrics.pending_payments }}</div>
       </div>
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
-        <div class="text-xs text-slate-400">{{ i18n.t('ចំណូលវេទិកាសរុប (USD)', 'Platform Revenue (USD)') }}</div>
-        <div class="text-2xl font-bold text-indigo-400 mt-1">USD {{ ov.metrics.total_revenue_usd }}</div>
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+        <div class="text-xs text-slate-400">{{ i18n.t('ចំណូលសរុប (Collected)', 'Total Revenue') }}</div>
+        <div class="text-2xl font-bold text-indigo-400 mt-1">${{ ov.metrics.total_revenue_usd }}</div>
       </div>
     </div>
 
@@ -188,6 +338,39 @@
                   <button
                     *ngIf="t.status === 'ACTIVE'"
                     type="button"
+                    [disabled]="impersonatingTenantId() === t.id"
+                    (click)="impersonateTenant(t)"
+                    class="px-2.5 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-semibold"
+                    [title]="i18n.t('ចូលពិនិត្យអេក្រង់ហាងផ្ទាល់ក្នុង Support Mode', 'Log in as tenant in Support Mode')"
+                  >
+                    <span *ngIf="impersonatingTenantId() !== t.id">👁️ Support</span>
+                    <span *ngIf="impersonatingTenantId() === t.id">...</span>
+                  </button>
+                  <button
+                    *ngIf="t.status === 'ACTIVE'"
+                    type="button"
+                    [disabled]="seedingTenantId() === t.id"
+                    (click)="seedPresets(t, 'DIGITAL')"
+                    class="px-2 py-1.5 rounded-lg bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-700 text-xs font-semibold"
+                    [title]="i18n.t('បញ្ចូលទិន្នន័យ Digital Print (A4, A3+, Sticker, Trodat)', 'Seed Digital Quick-Print Presets')"
+                  >
+                    <span *ngIf="seedingTenantId() !== t.id">🌱 Digital</span>
+                    <span *ngIf="seedingTenantId() === t.id">...</span>
+                  </button>
+                  <button
+                    *ngIf="t.status === 'ACTIVE'"
+                    type="button"
+                    [disabled]="seedingTenantId() === t.id"
+                    (click)="seedPresets(t, 'OFFSET')"
+                    class="px-2 py-1.5 rounded-lg bg-indigo-950 hover:bg-indigo-900 text-indigo-300 border border-indigo-700 text-xs font-semibold"
+                    [title]="i18n.t('បញ្ចូលទិន្នន័យ Commercial Offset (790x1090, 650x900, Flex Vinyl)', 'Seed Commercial Offset Presets')"
+                  >
+                    <span *ngIf="seedingTenantId() !== t.id">🏭 Offset</span>
+                    <span *ngIf="seedingTenantId() === t.id">...</span>
+                  </button>
+                  <button
+                    *ngIf="t.status === 'ACTIVE'"
+                    type="button"
                     [disabled]="togglingTenantId() === t.id"
                     (click)="toggleTenantStatus(t.id, 'SUSPEND')"
                     class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-rose-900 disabled:opacity-50 text-rose-300 border border-slate-700 text-xs font-medium"
@@ -211,6 +394,147 @@
                     {{ i18n.t('បានតែអាន (Support Read-Only)', 'Read-Only Support') }}
                   </span>
                 </ng-template>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Global Platform Broadcast & Announcement Management -->
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-6">
+        <div>
+          <h3 class="font-bold text-base text-white flex items-center gap-2">
+            <span>📢</span>
+            <span>{{ i18n.t('ការជូនដំណឹងទូទាំងប្រព័ន្ធ (Global Broadcast & Announcements)', 'Platform Broadcasts & Announcements') }}</span>
+          </h3>
+          <p class="text-xs text-slate-400 mt-1">
+            {{ i18n.t('ផ្ញើសារជូនដំណឹងភ្លាមៗទៅកាន់គ្រប់ Dashboard របស់ហាងបោះពុម្ពទាំងអស់ (ឧ. ការអាប់ដេតមុខងារ ឬការជួសជុលប្រព័ន្ធ)', 'Broadcast instant notification banner to all tenant shop dashboards.') }}
+          </p>
+        </div>
+      </div>
+
+      <!-- Create New Announcement Form -->
+      <form *ngIf="isSuperAdmin" (ngSubmit)="createAnnouncement()" class="mb-6 p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-4">
+        <div class="text-xs font-bold uppercase tracking-wider text-slate-300">
+          {{ i18n.t('+ បង្កើតសារជូនដំណឹងថ្មី (Broadcast New Announcement)', '+ Broadcast New Announcement') }}
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-slate-400 mb-1">Title</label>
+            <input
+              type="text"
+              name="annTitle"
+              [(ngModel)]="annTitle"
+              placeholder="e.g. System Maintenance Notice"
+              required
+              class="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-1.5 text-xs text-white"
+            />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-400 mb-1">Level / Severity</label>
+            <select
+              name="annLevel"
+              [(ngModel)]="annLevel"
+              class="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-1.5 text-xs text-white"
+            >
+              <option value="INFO">ℹ️ INFO (ពណ៌ខៀវ - General Notice)</option>
+              <option value="WARNING">⚠️ WARNING (ពណ៌លឿងទុំ - Maintenance)</option>
+              <option value="URGENT">🚨 URGENT (ពណ៌ក្រហម - Critical Alert)</option>
+            </select>
+          </div>
+          <div class="md:col-span-1 flex items-end">
+            <button
+              type="submit"
+              [disabled]="isSubmittingAnn()"
+              class="w-full py-2 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold shadow"
+            >
+              {{ isSubmittingAnn() ? i18n.t('កំពុងផ្សាយ...', 'Publishing...') : i18n.t('📢 ផ្សាយដំណឹង (Publish)', '📢 Publish Broadcast') }}
+            </button>
+          </div>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-slate-400 mb-1">សារជាភាសាខ្មែរ (Khmer Message)</label>
+            <textarea
+              name="annMessageKm"
+              [(ngModel)]="annMessageKm"
+              rows="2"
+              placeholder="ឧ. ប្រព័ន្ធនឹងធ្វើបច្ចុប្បន្នភាពនៅម៉ោង ១២ យប់នេះ..."
+              required
+              class="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-1.5 text-xs text-white"
+            ></textarea>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-400 mb-1">English Message (Optional)</label>
+            <textarea
+              name="annMessageEn"
+              [(ngModel)]="annMessageEn"
+              rows="2"
+              placeholder="e.g. Maintenance scheduled at 12:00 AM tonight..."
+              class="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-1.5 text-xs text-white"
+            ></textarea>
+          </div>
+        </div>
+      </form>
+
+      <!-- Announcements Table -->
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs">
+          <thead class="bg-slate-950/60 uppercase text-slate-400 border-b border-slate-800">
+            <tr>
+              <th class="py-2.5 px-3">Title & Content</th>
+              <th class="py-2.5 px-3">Level</th>
+              <th class="py-2.5 px-3">Status</th>
+              <th class="py-2.5 px-3">Created By</th>
+              <th class="py-2.5 px-3 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-800">
+            <tr *ngFor="let ann of announcements()" class="hover:bg-slate-800/40">
+              <td class="py-3 px-3">
+                <div class="font-semibold text-white">{{ ann.title }}</div>
+                <div class="text-slate-300 mt-0.5">{{ ann.message_km }}</div>
+                <div *ngIf="ann.message_en" class="text-slate-500 italic mt-0.5">{{ ann.message_en }}</div>
+              </td>
+              <td class="py-3 px-3">
+                <span [ngClass]="{
+                  'bg-sky-950 text-sky-300 border-sky-800': ann.level === 'INFO',
+                  'bg-amber-950 text-amber-300 border-amber-800': ann.level === 'WARNING',
+                  'bg-rose-950 text-rose-300 border-rose-800': ann.level === 'URGENT'
+                }" class="px-2 py-0.5 rounded text-[11px] font-bold border">
+                  {{ ann.level }}
+                </span>
+              </td>
+              <td class="py-3 px-3">
+                <span [class]="ann.is_active ? 'px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800' : 'px-2 py-0.5 rounded text-[11px] font-bold bg-slate-800 text-slate-400'">
+                  {{ ann.is_active ? '● LIVE ACTIVE' : '○ INACTIVE' }}
+                </span>
+              </td>
+              <td class="py-3 px-3 text-slate-400 font-mono">
+                {{ ann.created_by_email }} • {{ ann.created_at | date:'short' }}
+              </td>
+              <td class="py-3 px-3 text-right space-x-2">
+                <button
+                  type="button"
+                  (click)="toggleAnnouncement(ann)"
+                  class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium"
+                >
+                  {{ ann.is_active ? i18n.t('បិទ (Disable)', 'Disable') : i18n.t('បើក (Activate)', 'Activate') }}
+                </button>
+                <button
+                  type="button"
+                  (click)="deleteAnnouncement(ann.id)"
+                  class="px-2 py-1 rounded bg-rose-950/80 hover:bg-rose-900 text-rose-300 text-xs font-medium border border-rose-800"
+                >
+                  🗑️
+                </button>
+              </td>
+            </tr>
+            <tr *ngIf="announcements().length === 0">
+              <td colspan="5" class="py-6 text-center text-slate-500 italic">
+                {{ i18n.t('មិនទាន់មានសារជូនដំណឹងនៅឡើយទេ។', 'No broadcast announcements published yet.') }}
               </td>
             </tr>
           </tbody>
