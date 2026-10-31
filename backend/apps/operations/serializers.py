@@ -1,4 +1,4 @@
-﻿from decimal import Decimal
+from decimal import Decimal
 from rest_framework import serializers
 from apps.operations.models import (
     Customer,
@@ -9,7 +9,9 @@ from apps.operations.models import (
     ProductionJob,
     ProductionStage,
     Quotation,
+    QuotationItem,
     SalesOrder,
+    SalesOrderItem,
 )
 
 
@@ -62,19 +64,75 @@ class InventoryTransactionSerializer(serializers.ModelSerializer):
         ]
 
 
+class QuotationItemCreateSerializer(serializers.Serializer):
+    item_title = serializers.CharField(max_length=200)
+    specification_summary = serializers.CharField(required=False, allow_blank=True, default="")
+    quantity = serializers.IntegerField(min_value=1)
+    unit_price_usd = serializers.DecimalField(
+        max_digits=12, decimal_places=4, min_value=Decimal("0.00")
+    )
+    setup_fee_usd = serializers.DecimalField(
+        max_digits=12, decimal_places=2, min_value=Decimal("0.00"), default=Decimal("0.00")
+    )
+    finishing_fee_usd = serializers.DecimalField(
+        max_digits=12, decimal_places=2, min_value=Decimal("0.00"), default=Decimal("0.00")
+    )
+
+
+class QuotationItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = QuotationItem
+        fields = [
+            "id",
+            "item_title",
+            "specification_summary",
+            "quantity",
+            "setup_fee_usd",
+            "unit_price_usd",
+            "finishing_fee_usd",
+            "subtotal_usd",
+        ]
+
+
+class SalesOrderItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SalesOrderItem
+        fields = [
+            "id",
+            "item_title",
+            "specification_summary",
+            "quantity",
+            "setup_fee_usd",
+            "unit_price_usd",
+            "finishing_fee_usd",
+            "subtotal_usd",
+            "artwork_file_name",
+        ]
+
+
 class QuotationCreateSerializer(serializers.Serializer):
     customer_id = serializers.UUIDField()
     title = serializers.CharField(max_length=200)
     specification_summary = serializers.CharField(required=False, allow_blank=True, default="")
-    quantity = serializers.IntegerField(min_value=1)
-    setup_fee_usd = serializers.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
-    unit_price_usd = serializers.DecimalField(max_digits=12, decimal_places=4)
-    finishing_fee_usd = serializers.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
-    discount_usd = serializers.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    quantity = serializers.IntegerField(min_value=1, required=False, default=1)
+    setup_fee_usd = serializers.DecimalField(
+        max_digits=12, decimal_places=2, min_value=Decimal("0.00"), default=Decimal("0.00")
+    )
+    unit_price_usd = serializers.DecimalField(
+        max_digits=12, decimal_places=4, min_value=Decimal("0.00"), default=Decimal("0.0000")
+    )
+    finishing_fee_usd = serializers.DecimalField(
+        max_digits=12, decimal_places=2, min_value=Decimal("0.00"), default=Decimal("0.00")
+    )
+    discount_usd = serializers.DecimalField(
+        max_digits=12, decimal_places=2, min_value=Decimal("0.00"), default=Decimal("0.00")
+    )
+    items = QuotationItemCreateSerializer(many=True, required=False, default=list)
 
 
 class QuotationSerializer(serializers.ModelSerializer):
     customer_name = serializers.CharField(source="customer.name", read_only=True)
+    items = QuotationItemSerializer(many=True, read_only=True)
 
     class Meta:
         model = Quotation
@@ -95,6 +153,7 @@ class QuotationSerializer(serializers.ModelSerializer):
             "total_usd",
             "total_khr",
             "status",
+            "items",
             "created_at",
         ]
 
@@ -108,6 +167,8 @@ class SalesOrderSerializer(serializers.ModelSerializer):
     balance_due_usd = serializers.DecimalField(
         source="invoice.balance_due_usd", max_digits=14, decimal_places=2, read_only=True
     )
+
+    items = SalesOrderItemSerializer(many=True, read_only=True)
 
     class Meta:
         model = SalesOrder
@@ -128,6 +189,7 @@ class SalesOrderSerializer(serializers.ModelSerializer):
             "invoice_id",
             "invoice_status",
             "balance_due_usd",
+            "items",
             "created_at",
         ]
 
@@ -158,6 +220,22 @@ class CustomerInvoiceSerializer(serializers.ModelSerializer):
 
 
 class InvoicePaymentCreateSerializer(serializers.Serializer):
-    amount_usd = serializers.DecimalField(max_digits=14, decimal_places=2)
+    amount_usd = serializers.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        min_value=Decimal("0.01"),
+    )
     payment_method = serializers.CharField(max_length=32, default="KHQR_ABA")
     reference_number = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
+
+
+class ImpositionCalculateSerializer(serializers.Serializer):
+    parent_sheet_width_mm = serializers.FloatField(default=790.0, min_value=50.0)
+    parent_sheet_height_mm = serializers.FloatField(default=1090.0, min_value=50.0)
+    cut_width_mm = serializers.FloatField(default=210.0, min_value=10.0)
+    cut_height_mm = serializers.FloatField(default=297.0, min_value=10.0)
+    margin_mm = serializers.FloatField(default=5.0, min_value=0.0)
+    gripper_mm = serializers.FloatField(default=10.0, min_value=0.0)
+    bleed_mm = serializers.FloatField(default=2.0, min_value=0.0)
+    target_quantity = serializers.IntegerField(default=1000, min_value=1)
+    spoilage_percent = serializers.FloatField(default=3.0, min_value=0.0, max_value=50.0)

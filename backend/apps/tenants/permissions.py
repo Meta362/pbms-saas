@@ -1,9 +1,11 @@
-﻿from uuid import UUID
+from uuid import UUID
+from django.utils import timezone
 from rest_framework.exceptions import PermissionDenied
-from rest_framework.permissions import BasePermission
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.views import APIView
 from apps.accounts.models import PlatformRole
+from apps.subscriptions.models import SubscriptionStatus
 from apps.tenants.models import TenantMembership, TenantStatus
 
 
@@ -17,6 +19,66 @@ class IsPlatformSuperAdmin(BasePermission):
             and user.is_platform_staff
             and user.platform_role == PlatformRole.SUPER_ADMIN
         )
+
+
+class HasVerifiedUsbLicense(BasePermission):
+    """
+    Mandatory SuperAdmin USB Hardware Licensing Permission:
+    Requires user to be a Platform SuperAdmin AND present a valid elevated USB JWT token
+    via the X-USB-Elevated-Token header or authenticated session.
+    """
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        from django.conf import settings
+        user = request.user
+        if not (
+            user
+            and user.is_authenticated
+            and user.is_active
+            and user.is_platform_staff
+            and user.platform_role == PlatformRole.SUPER_ADMIN
+        ):
+            return False
+
+        if not getattr(settings, "USB_HARDWARE_LICENSING_ENFORCED", True):
+            return True
+
+        elevated_token = request.headers.get("X-USB-Elevated-Token")
+        if not elevated_token:
+            auth_header = request.headers.get("Authorization", "")
+            if auth_header.startswith("Bearer "):
+                elevated_token = auth_header.split(" ", 1)[1]
+
+        if not elevated_token:
+            return False
+
+        try:
+            from apps.core.usb_licensing import verify_elevated_usb_jwt
+            verify_elevated_usb_jwt(elevated_token, user)
+            return True
+        except Exception:
+            return False
+
+
+class IsPlatformSuperAdminOrSupportReadOnly(BasePermission):
+    """
+    REQ-RBAC-01 & docs/RBAC.md Section 2:
+    - SUPER_ADMIN has full read/write platform access.
+    - PLATFORM_SUPPORT has read-only (SAFE_METHODS) access to overview/tenant status/audit views.
+    """
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        user = request.user
+        if not (user and user.is_authenticated and user.is_active and user.is_platform_staff):
+            return False
+        if user.platform_role == PlatformRole.SUPER_ADMIN:
+            return True
+        if (
+            user.platform_role == PlatformRole.PLATFORM_SUPPORT
+            and request.method in SAFE_METHODS
+        ):
+            return True
+        return False
 
 
 class HasActiveTenantMembership(BasePermission):
@@ -37,7 +99,11 @@ class HasActiveTenantMembership(BasePermission):
             raise PermissionDenied("Invalid X-Tenant-ID format.") from exc
 
         membership = (
-            TenantMembership.objects.select_related("tenant")
+            TenantMembership.objects.select_related(
+                "tenant",
+                "tenant__subscription",
+                "tenant__subscription__plan",
+            )
             .filter(
                 user=user,
                 tenant_id=tenant_uuid,
@@ -50,10 +116,42 @@ class HasActiveTenantMembership(BasePermission):
         if not membership:
             raise PermissionDenied("Access denied: You do not have active membership in this tenant.")
 
-        allowed_roles = getattr(view, "allowed_tenant_roles", None)
-        if allowed_roles is not None and membership.role not in allowed_roles:
+        subscription = getattr(membership.tenant, "subscription", None)
+        if subscription is None:
+            raise PermissionDenied(
+                "Access denied: Tenant does not have an active subscription."
+            )
+        if subscription.status not in (
+            SubscriptionStatus.ACTIVE,
+            SubscriptionStatus.TRIALING,
+        ):
+            raise PermissionDenied(
+                f"Access denied: Tenant subscription is not active (status: {subscription.status})."
+            )
+        now = timezone.now()
+        if (
+            subscription.current_period_end is None
+            or subscription.current_period_end <= now
+        ):
+            raise PermissionDenied(
+                "Access denied: Tenant subscription billing period has expired."
+            )
+
+        roles_by_method = getattr(view, "allowed_tenant_roles_by_method", None)
+        if isinstance(roles_by_method, dict):
+            allowed_roles = roles_by_method.get(request.method.upper())
+        else:
+            allowed_roles = getattr(view, "allowed_tenant_roles", None)
+
+        if not allowed_roles:
+            raise PermissionDenied(
+                "Access denied: Role permissions are not configured for this endpoint."
+            )
+
+        if membership.role not in allowed_roles:
             raise PermissionDenied("Access denied: Insufficient role permissions within this tenant.")
 
         request.tenant = membership.tenant
         request.tenant_membership = membership
+        request.tenant_subscription = subscription
         return True

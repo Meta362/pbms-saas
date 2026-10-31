@@ -1,21 +1,46 @@
-﻿from decimal import Decimal
+from datetime import timedelta
+from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.test import TestCase
-from rest_framework.test import APIClient
+from django.utils import timezone
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
+from rest_framework.response import Response
+from rest_framework.test import APIClient, APIRequestFactory, force_authenticate
+from rest_framework.views import APIView
 from apps.accounts.models import AuthSession
 from apps.core.models import AuditEvent
+from apps.subscriptions.models import (
+    BillingCycle,
+    Plan,
+    SubscriptionStatus,
+    TenantSubscription,
+)
+from apps.subscriptions.views import ensure_default_plans
 from apps.tenants.models import Tenant, TenantMembership, TenantRole, TenantStatus
+from apps.tenants.permissions import HasActiveTenantMembership
 
 User = get_user_model()
 
 
+class _UnconfiguredRoleTenantView(APIView):
+    """Test view intentionally omitting allowed_tenant_roles to verify fail-closed behavior."""
+
+    permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+
+    def get(self, request: Request) -> Response:
+        return Response({"ok": True})
+
+
 class AuthenticationAndTenantIsolationSecurityTests(TestCase):
     """
-    Tests REQ-AUTH-01, REQ-AUTH-02, REQ-AUTH-03, REQ-AUTH-04, REQ-RBAC-02, REQ-RBAC-03.
+    Tests REQ-AUTH-01..04, REQ-RBAC-01..03, and Staff Membership CRUD & Entitlements.
     """
 
     def setUp(self) -> None:
         self.client = APIClient()
+        ensure_default_plans()
+        self.starter_plan = Plan.objects.get(code="starter")
         self.password = "SecurePrintingPass#2026"
         self.user_a = User.objects.create_user(
             email="sokha@shop-a.com",
@@ -41,12 +66,30 @@ class AuthenticationAndTenantIsolationSecurityTests(TestCase):
             khr_exchange_rate=Decimal("4050.00"),
         )
 
-        TenantMembership.objects.create(
+        now = timezone.now()
+        self.sub_a = TenantSubscription.objects.create(
+            tenant=self.tenant_a,
+            plan=self.starter_plan,
+            billing_cycle=BillingCycle.MONTHLY,
+            status=SubscriptionStatus.ACTIVE,
+            current_period_start=now,
+            current_period_end=now + timedelta(days=30),
+        )
+        self.sub_b = TenantSubscription.objects.create(
+            tenant=self.tenant_b,
+            plan=self.starter_plan,
+            billing_cycle=BillingCycle.MONTHLY,
+            status=SubscriptionStatus.ACTIVE,
+            current_period_start=now,
+            current_period_end=now + timedelta(days=30),
+        )
+
+        self.membership_a = TenantMembership.objects.create(
             tenant=self.tenant_a,
             user=self.user_a,
             role=TenantRole.TENANT_OWNER,
         )
-        TenantMembership.objects.create(
+        self.membership_b = TenantMembership.objects.create(
             tenant=self.tenant_b,
             user=self.user_b,
             role=TenantRole.TENANT_OWNER,
@@ -123,6 +166,75 @@ class AuthenticationAndTenantIsolationSecurityTests(TestCase):
         me_res = self.client.get("/api/v1/auth/me/")
         self.assertEqual(me_res.status_code, 401)
 
+    def test_logout_all_revokes_all_active_sessions_and_blocks_tokens(self) -> None:
+        # 1. User logs in on Client 1
+        res1 = self.client.post(
+            "/api/v1/auth/login/",
+            {"email": "sokha@shop-a.com", "password": self.password},
+            format="json",
+        ).json()
+        token1 = res1["access_token"]
+
+        # 2. User logs in on Client 2
+        res2 = self.client.post(
+            "/api/v1/auth/login/",
+            {"email": "sokha@shop-a.com", "password": self.password},
+            format="json",
+        ).json()
+        token2 = res2["access_token"]
+
+        # Assert two active sessions exist for User A
+        self.assertEqual(AuthSession.objects.filter(user=self.user_a, is_revoked=False).count(), 2)
+
+        # 3. Client 2 executes logout-all
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token2}")
+        logout_all_res = self.client.post("/api/v1/auth/logout-all/")
+        self.assertEqual(logout_all_res.status_code, 200)
+        self.assertEqual(logout_all_res.json()["status"], "revoked_all")
+        self.assertEqual(logout_all_res.json()["sessions_revoked"], 2)
+
+        # 4. Assert all sessions in DB are revoked
+        self.assertEqual(AuthSession.objects.filter(user=self.user_a, is_revoked=False).count(), 0)
+
+        # 5. Neither token can authenticate anymore
+        c1 = APIClient()
+        c1.credentials(HTTP_AUTHORIZATION=f"Bearer {token1}")
+        self.assertEqual(c1.get("/api/v1/auth/me/").status_code, 401)
+
+        c2 = APIClient()
+        c2.credentials(HTTP_AUTHORIZATION=f"Bearer {token2}")
+        self.assertEqual(c2.get("/api/v1/auth/me/").status_code, 401)
+
+        # 6. Audit event was generated
+        self.assertTrue(
+            AuditEvent.objects.filter(actor_user=self.user_a, event_type="AUTH_LOGOUT_ALL").exists()
+        )
+
+    def test_login_throttling_enforces_rate_limit(self) -> None:
+        from unittest.mock import patch
+        from django.core.cache import cache
+        from rest_framework.throttling import ScopedRateThrottle
+        cache.clear()
+
+        with patch.dict(ScopedRateThrottle.THROTTLE_RATES, {"auth_login": "5/minute"}):
+            # Make requests up to rate limit (5)
+            for _ in range(5):
+                res = self.client.post(
+                    "/api/v1/auth/login/",
+                    {"email": "sokha@shop-a.com", "password": "wrong-password"},
+                    format="json",
+                )
+                self.assertEqual(res.status_code, 401)
+
+            # 6th attempt should be throttled
+            throttled_res = self.client.post(
+                "/api/v1/auth/login/",
+                {"email": "sokha@shop-a.com", "password": "wrong-password"},
+                format="json",
+            )
+            self.assertEqual(throttled_res.status_code, 429)
+        cache.clear()
+
     def test_cross_tenant_idor_access_is_strictly_blocked(self) -> None:
         login_res = self.client.post(
             "/api/v1/auth/login/",
@@ -147,3 +259,239 @@ class AuthenticationAndTenantIsolationSecurityTests(TestCase):
         )
         cross_res = self.client.get("/api/v1/tenant/context/")
         self.assertEqual(cross_res.status_code, 403)
+
+    def test_missing_role_configuration_fails_closed(self) -> None:
+        factory = APIRequestFactory()
+        request = factory.get(
+            "/api/v1/tenant/unconfigured/",
+            HTTP_X_TENANT_ID=str(self.tenant_a.id),
+        )
+        force_authenticate(request, user=self.user_a)
+        view = _UnconfiguredRoleTenantView.as_view()
+        response = view(request)
+        self.assertEqual(response.status_code, 403)
+
+    def test_staff_membership_crud_role_enforcement_audit_and_entitlements(self) -> None:
+        login_a = self.client.post(
+            "/api/v1/auth/login/",
+            {"email": "sokha@shop-a.com", "password": self.password},
+            format="json",
+        ).json()
+        owner_token = login_a["access_token"]
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {owner_token}",
+            HTTP_X_TENANT_ID=str(self.tenant_a.id),
+        )
+
+        # 1. Owner lists memberships -> sees only Tenant A's membership, without sensitive fields
+        list_res = self.client.get("/api/v1/tenant/memberships/")
+        self.assertEqual(list_res.status_code, 200)
+        items = list_res.json()
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["email"], "sokha@shop-a.com")
+        self.assertNotIn("password", items[0])
+        self.assertNotIn("current_refresh_jti_hash", items[0])
+
+        # 2. Attempt to inject platform_role via membership creation -> 400 Bad Request
+        priv_res = self.client.post(
+            "/api/v1/tenant/memberships/",
+            {
+                "email": "attacker@shop-a.com",
+                "full_name": "Attacker",
+                "password": "StrongStaffPass#2026",
+                "role": TenantRole.SALES_STAFF,
+                "platform_role": "SUPER_ADMIN",
+            },
+            format="json",
+        )
+        self.assertEqual(priv_res.status_code, 400)
+
+        # 3. Owner creates a SALES_STAFF member -> 201 Created + AuditEvent
+        create_res = self.client.post(
+            "/api/v1/tenant/memberships/",
+            {
+                "email": "sales1@shop-a.com",
+                "full_name": "Bopha Sales",
+                "phone": "012111222",
+                "password": "StrongStaffPass#2026",
+                "role": TenantRole.SALES_STAFF,
+            },
+            format="json",
+        )
+        self.assertEqual(create_res.status_code, 201)
+        staff_data = create_res.json()
+        staff_membership_id = staff_data["id"]
+        self.assertEqual(staff_data["role"], TenantRole.SALES_STAFF)
+        self.assertTrue(staff_data["is_active"])
+        self.assertNotIn("password", staff_data)
+        self.assertTrue(
+            AuditEvent.objects.filter(
+                tenant=self.tenant_a,
+                event_type="TENANT_MEMBERSHIP_CREATED",
+                target_id=staff_membership_id,
+            ).exists()
+        )
+
+        # 4. Duplicate membership creation in the same tenant -> 400 Bad Request
+        dup_res = self.client.post(
+            "/api/v1/tenant/memberships/",
+            {
+                "email": "sales1@shop-a.com",
+                "role": TenantRole.FINANCE_STAFF,
+            },
+            format="json",
+        )
+        self.assertEqual(dup_res.status_code, 400)
+
+        # 5. Non-admin role (SALES_STAFF) cannot list, create, or update memberships -> 403 Forbidden
+        staff_login = self.client.post(
+            "/api/v1/auth/login/",
+            {"email": "sales1@shop-a.com", "password": "StrongStaffPass#2026"},
+            format="json",
+        ).json()
+        staff_token = staff_login["access_token"]
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {staff_token}",
+            HTTP_X_TENANT_ID=str(self.tenant_a.id),
+        )
+        self.assertEqual(self.client.get("/api/v1/tenant/memberships/").status_code, 403)
+        self.assertEqual(
+            self.client.post(
+                "/api/v1/tenant/memberships/",
+                {
+                    "email": "unauthorized@shop-a.com",
+                    "full_name": "Unauthorized",
+                    "password": "StrongStaffPass#2026",
+                    "role": TenantRole.DESIGNER,
+                },
+                format="json",
+            ).status_code,
+            403,
+        )
+        self.assertEqual(
+            self.client.patch(
+                f"/api/v1/tenant/memberships/{staff_membership_id}/",
+                {"role": TenantRole.TENANT_OWNER},
+                format="json",
+            ).status_code,
+            403,
+        )
+        # Non-admin also cannot read tenant audit logs -> 403 Forbidden
+        self.assertEqual(self.client.get("/api/v1/tenant/audit-events/").status_code, 403)
+
+        # 6. Switch back to Owner: update staff role to FINANCE_STAFF -> 200 OK + AuditEvent
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {owner_token}",
+            HTTP_X_TENANT_ID=str(self.tenant_a.id),
+        )
+        patch_role_res = self.client.patch(
+            f"/api/v1/tenant/memberships/{staff_membership_id}/",
+            {"role": TenantRole.FINANCE_STAFF},
+            format="json",
+        )
+        self.assertEqual(patch_role_res.status_code, 200)
+        self.assertEqual(patch_role_res.json()["role"], TenantRole.FINANCE_STAFF)
+        self.assertTrue(
+            AuditEvent.objects.filter(
+                tenant=self.tenant_a,
+                event_type="TENANT_MEMBERSHIP_ROLE_CHANGED",
+                target_id=staff_membership_id,
+            ).exists()
+        )
+
+        # Verify updated role is immediately effective on subsequent requests
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {staff_token}",
+            HTTP_X_TENANT_ID=str(self.tenant_a.id),
+        )
+        ctx_res = self.client.get("/api/v1/tenant/context/")
+        self.assertEqual(ctx_res.status_code, 200)
+        self.assertEqual(ctx_res.json()["role"], TenantRole.FINANCE_STAFF)
+
+        # 7. Owner deactivates staff membership -> 200 OK + AuditEvent, and staff is immediately denied access
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {owner_token}",
+            HTTP_X_TENANT_ID=str(self.tenant_a.id),
+        )
+        deact_res = self.client.patch(
+            f"/api/v1/tenant/memberships/{staff_membership_id}/",
+            {"is_active": False},
+            format="json",
+        )
+        self.assertEqual(deact_res.status_code, 200)
+        self.assertFalse(deact_res.json()["is_active"])
+        self.assertTrue(
+            AuditEvent.objects.filter(
+                tenant=self.tenant_a,
+                event_type="TENANT_MEMBERSHIP_DEACTIVATED",
+                target_id=staff_membership_id,
+            ).exists()
+        )
+
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {staff_token}",
+            HTTP_X_TENANT_ID=str(self.tenant_a.id),
+        )
+        self.assertEqual(self.client.get("/api/v1/tenant/context/").status_code, 403)
+
+        # 8. Last active TENANT_OWNER cannot be deactivated or demoted -> 400 Bad Request
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {owner_token}",
+            HTTP_X_TENANT_ID=str(self.tenant_a.id),
+        )
+        self.assertEqual(
+            self.client.patch(
+                f"/api/v1/tenant/memberships/{self.membership_a.id}/",
+                {"is_active": False},
+                format="json",
+            ).status_code,
+            400,
+        )
+        self.assertEqual(
+            self.client.patch(
+                f"/api/v1/tenant/memberships/{self.membership_a.id}/",
+                {"role": TenantRole.TENANT_MANAGER},
+                format="json",
+            ).status_code,
+            400,
+        )
+
+        # 9. Cross-tenant membership modification is blocked -> 404 Not Found
+        self.assertEqual(
+            self.client.patch(
+                f"/api/v1/tenant/memberships/{self.membership_b.id}/",
+                {"is_active": False},
+                format="json",
+            ).status_code,
+            404,
+        )
+
+        # 10. Plan max_staff_users limit enforcement (set max_staff_users=2 on starter plan)
+        self.starter_plan.max_staff_users = 2
+        self.starter_plan.save(update_fields=["max_staff_users", "updated_at"])
+
+        # Currently 1 active member (owner). Reactivating sales1 brings active count to 2 -> 200 OK
+        react_res = self.client.patch(
+            f"/api/v1/tenant/memberships/{staff_membership_id}/",
+            {"is_active": True},
+            format="json",
+        )
+        self.assertEqual(react_res.status_code, 200)
+
+        # Creating a 3rd active member exceeds max_staff_users=2 -> 400 Bad Request
+        over_limit_res = self.client.post(
+            "/api/v1/tenant/memberships/",
+            {
+                "email": "staff3@shop-a.com",
+                "full_name": "Third Staff",
+                "password": "StrongStaffPass#2026",
+                "role": TenantRole.DESIGNER,
+            },
+            format="json",
+        )
+        self.assertEqual(over_limit_res.status_code, 400)
+
+        # 11. Owner can read tenant-scoped audit events
+        audit_res = self.client.get("/api/v1/tenant/audit-events/")
+        self.assertEqual(audit_res.status_code, 200)
+        self.assertGreaterEqual(len(audit_res.json()), 3)

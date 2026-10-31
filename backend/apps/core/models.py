@@ -1,4 +1,4 @@
-﻿import uuid
+import uuid
 from django.conf import settings
 from django.db import models
 
@@ -51,3 +51,30 @@ class AuditEvent(models.Model):
 
     def __str__(self) -> str:
         return f"[{self.created_at.isoformat()}] {self.event_type}"
+
+
+class PlatformAnnouncement(TimeStampedUUIDModel):
+    """
+    SuperAdmin Global Broadcast / Maintenance Notification for all tenants.
+    """
+    title = models.CharField(max_length=200)
+    message_km = models.TextField()
+    message_en = models.TextField()
+    level = models.CharField(
+        max_length=20,
+        choices=[("INFO", "Info"), ("WARNING", "Warning"), ("URGENT", "Urgent")],
+        default="INFO",
+    )
+    is_active = models.BooleanField(default=True, db_index=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.RESTRICT,
+        related_name="announcements",
+    )
+
+    class Meta:
+        db_table = "core_platformannouncement"
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.title} ({self.level}) [{'ACTIVE' if self.is_active else 'INACTIVE'}]"

@@ -1,5 +1,6 @@
-﻿from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP
 from django.db import transaction
+from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 from apps.core.models import AuditEvent
 from apps.operations.models import (
@@ -13,10 +14,14 @@ from apps.operations.models import (
     ProductionJob,
     ProductionStage,
     Quotation,
+    QuotationItem,
     QuotationStatus,
     SalesOrder,
+    SalesOrderItem,
 )
+from apps.subscriptions.models import SubscriptionStatus, TenantSubscription
 from apps.tenants.models import Tenant
+
 
 
 def round_usd(value: Decimal) -> Decimal:
@@ -30,6 +35,58 @@ def round_khr_nearest_100(usd_amount: Decimal, exchange_rate: Decimal) -> Decima
     raw_khr = usd_amount * exchange_rate
     hundreds = (raw_khr / Decimal("100")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
     return hundreds * Decimal("100")
+
+
+def calculate_multi_item_quotation_totals(
+    *,
+    tenant: Tenant,
+    items: list[dict],
+    discount_usd: Decimal = Decimal("0.00"),
+) -> dict[str, any]:
+    """
+    DOM-001 & REQ-PRINT-01: Deterministic line-item pricing rollups for multi-item printing quotations.
+    Computes setup fee, finishing fee, unit price, line subtotals, tax, and total in USD & KHR.
+    """
+    processed_items = []
+    accumulated_subtotal = Decimal("0.00")
+
+    for item in items:
+        qty = Decimal(str(item["quantity"]))
+        unit_price = Decimal(str(item["unit_price_usd"]))
+        setup_fee = Decimal(str(item.get("setup_fee_usd", "0.00")))
+        finishing_fee = Decimal(str(item.get("finishing_fee_usd", "0.00")))
+
+        item_subtotal = round_usd(setup_fee + (qty * unit_price) + finishing_fee)
+        accumulated_subtotal += item_subtotal
+
+        processed_items.append({
+            "item_title": item["item_title"],
+            "specification_summary": item.get("specification_summary", ""),
+            "quantity": int(qty),
+            "setup_fee_usd": setup_fee,
+            "unit_price_usd": unit_price,
+            "finishing_fee_usd": finishing_fee,
+            "subtotal_usd": item_subtotal,
+        })
+
+    if discount_usd > accumulated_subtotal:
+        raise ValidationError("Discount cannot exceed quotation subtotal.")
+
+    taxable = accumulated_subtotal - discount_usd
+    if not getattr(tenant, "is_tax_registered", True):
+        tax_amount = Decimal("0.00")
+    else:
+        tax_amount = round_usd(taxable * (tenant.tax_rate_percent / Decimal("100.00")))
+    total_usd = round_usd(taxable + tax_amount)
+    total_khr = round_khr_nearest_100(total_usd, tenant.khr_exchange_rate)
+
+    return {
+        "items": processed_items,
+        "subtotal_usd": accumulated_subtotal,
+        "tax_amount_usd": tax_amount,
+        "total_usd": total_usd,
+        "total_khr": total_khr,
+    }
 
 
 def calculate_quotation_totals(
@@ -51,7 +108,10 @@ def calculate_quotation_totals(
         raise ValidationError("Discount cannot exceed quotation subtotal.")
 
     taxable = subtotal - discount_usd
-    tax_amount = round_usd(taxable * (tenant.tax_rate_percent / Decimal("100.00")))
+    if not getattr(tenant, "is_tax_registered", True):
+        tax_amount = Decimal("0.00")
+    else:
+        tax_amount = round_usd(taxable * (tenant.tax_rate_percent / Decimal("100.00")))
     total_usd = round_usd(taxable + tax_amount)
     total_khr = round_khr_nearest_100(total_usd, tenant.khr_exchange_rate)
 
@@ -137,14 +197,36 @@ def convert_quotation_to_order_and_invoice(
     actor_user,
 ) -> SalesOrder:
     """
-    REQ-PRINT-02, REQ-PRINT-03, REQ-PRINT-05:
+    REQ-PRINT-02, REQ-PRINT-03, REQ-PRINT-05, REQ-SAAS-02:
     Converts a Quotation into a SalesOrder, spawns a ProductionJob, and issues a CustomerInvoice.
+    Enforces Plan.max_orders_per_month atomically under a tenant row lock.
     """
+    locked_tenant = Tenant.objects.select_for_update().get(id=tenant.id)
+    subscription = (
+        TenantSubscription.objects.select_for_update()
+        .select_related("plan")
+        .filter(tenant=locked_tenant)
+        .first()
+    )
+    if subscription is None or subscription.status not in (
+        SubscriptionStatus.ACTIVE,
+        SubscriptionStatus.TRIALING,
+    ):
+        raise ValidationError(
+            "Tenant does not have an active subscription required to create orders."
+        )
+    now = timezone.now()
+    if (
+        subscription.current_period_end is None
+        or subscription.current_period_end <= now
+    ):
+        raise ValidationError("Tenant subscription billing period has expired.")
+
     try:
         quote = (
             Quotation.objects.select_for_update()
             .select_related("customer")
-            .get(id=quotation_id, tenant=tenant)
+            .get(id=quotation_id, tenant=locked_tenant)
         )
     except Quotation.DoesNotExist as exc:
         raise ValidationError("Quotation not found in this tenant.") from exc
@@ -152,16 +234,35 @@ def convert_quotation_to_order_and_invoice(
     if quote.status == QuotationStatus.CONVERTED:
         raise ValidationError("Quotation has already been converted to a Sales Order.")
 
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    if month_start.month == 12:
+        next_month_start = month_start.replace(year=month_start.year + 1, month=1)
+    else:
+        next_month_start = month_start.replace(month=month_start.month + 1)
+
+    monthly_orders_count = (
+        SalesOrder.objects.filter(
+            tenant=locked_tenant,
+            created_at__gte=month_start,
+            created_at__lt=next_month_start,
+        )
+        .exclude(status=OrderStatus.CANCELED)
+        .count()
+    )
+    max_orders = subscription.plan.max_orders_per_month
+    if monthly_orders_count >= max_orders:
+        raise ValidationError(
+            f"Monthly order limit reached ({max_orders} orders per month for plan '{subscription.plan.code}')."
+        )
+
     quote.status = QuotationStatus.CONVERTED
     quote.save(update_fields=["status", "updated_at"])
 
-    seq_num = SalesOrder.objects.filter(tenant=tenant).count() + 1
-    order_number = f"SO-{seq_num:04d}"
-    job_code = f"JOB-{seq_num:04d}"
-    invoice_number = f"INV-{seq_num:04d}"
+    from apps.operations.sequence_service import allocate_order_job_and_invoice_numbers
+    order_number, job_code, invoice_number = allocate_order_job_and_invoice_numbers(locked_tenant)
 
     order = SalesOrder.objects.create(
-        tenant=tenant,
+        tenant=locked_tenant,
         customer=quote.customer,
         quotation=quote,
         order_number=order_number,
@@ -175,8 +276,39 @@ def convert_quotation_to_order_and_invoice(
         created_by=actor_user,
     )
 
+    # DOM-001: Spawn itemized SalesOrderItem records from QuotationItems
+    quote_items = list(quote.items.all())
+    if quote_items:
+        for q_item in quote_items:
+            SalesOrderItem.objects.create(
+                tenant=locked_tenant,
+                sales_order=order,
+                quotation_item=q_item,
+                item_title=q_item.item_title,
+                specification_summary=q_item.specification_summary,
+                quantity=q_item.quantity,
+                setup_fee_usd=q_item.setup_fee_usd,
+                unit_price_usd=q_item.unit_price_usd,
+                finishing_fee_usd=q_item.finishing_fee_usd,
+                subtotal_usd=q_item.subtotal_usd,
+                artwork_file_name=artwork_file_name or "pending_artwork.pdf",
+            )
+    else:
+        SalesOrderItem.objects.create(
+            tenant=locked_tenant,
+            sales_order=order,
+            item_title=quote.title,
+            specification_summary=quote.specification_summary,
+            quantity=quote.quantity,
+            setup_fee_usd=quote.setup_fee_usd,
+            unit_price_usd=quote.unit_price_usd,
+            finishing_fee_usd=quote.finishing_fee_usd,
+            subtotal_usd=quote.subtotal_usd,
+            artwork_file_name=artwork_file_name or "pending_artwork.pdf",
+        )
+
     ProductionJob.objects.create(
-        tenant=tenant,
+        tenant=locked_tenant,
         sales_order=order,
         job_Code=job_code,
         stage=ProductionStage.PENDING,
@@ -184,7 +316,7 @@ def convert_quotation_to_order_and_invoice(
     )
 
     CustomerInvoice.objects.create(
-        tenant=tenant,
+        tenant=locked_tenant,
         sales_order=order,
         invoice_number=invoice_number,
         total_usd=order.total_usd,
@@ -196,7 +328,7 @@ def convert_quotation_to_order_and_invoice(
 
     AuditEvent.objects.create(
         actor_user=actor_user,
-        tenant=tenant,
+        tenant=locked_tenant,
         event_type="QUOTATION_CONVERTED_TO_ORDER",
         target_model="operations.SalesOrder",
         target_id=str(order.id),

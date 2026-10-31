@@ -1,17 +1,28 @@
-﻿from django.contrib.auth import authenticate
+from django.contrib.auth import authenticate, get_user_model
+from django.db import IntegrityError, transaction
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.exceptions import AuthenticationFailed, ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from apps.accounts.jwt_service import create_session_and_issue_tokens, rotate_refresh_token
 from apps.accounts.models import AuthSession
-from apps.accounts.serializers import LoginRequestSerializer, RefreshTokenRequestSerializer
+from apps.accounts.serializers import (
+    LoginRequestSerializer,
+    RefreshTokenRequestSerializer,
+    TenantMembershipCreateSerializer,
+    TenantMembershipSerializer,
+    TenantMembershipUpdateSerializer,
+)
 from apps.core.models import AuditEvent
-from apps.tenants.models import TenantMembership, TenantStatus
+from apps.subscriptions.models import TenantSubscription
+from apps.tenants.models import Tenant, TenantMembership, TenantRole, TenantStatus
 from apps.tenants.permissions import HasActiveTenantMembership
+
+User = get_user_model()
 
 
 def _get_client_ip(request: Request) -> str | None:
@@ -42,6 +53,7 @@ def _serialize_user_memberships(user) -> list[dict]:
 
 class LoginAPIView(APIView):
     permission_classes = [AllowAny]
+    throttle_scope = "auth_login" 
 
     def post(self, request: Request) -> Response:
         serializer = LoginRequestSerializer(data=request.data)
@@ -87,6 +99,7 @@ class LoginAPIView(APIView):
 
 class RefreshTokenAPIView(APIView):
     permission_classes = [AllowAny]
+    throttle_scope = "auth_refresh" 
 
     def post(self, request: Request) -> Response:
         serializer = RefreshTokenRequestSerializer(data=request.data)
@@ -126,6 +139,43 @@ class LogoutAPIView(APIView):
         return Response({"status": "revoked"}, status=status.HTTP_200_OK)
 
 
+class LogoutAllAPIView(APIView):
+    """
+    REQ-AUTH-04: Revokes all active AuthSession records for the authenticated user across all devices.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request: Request) -> Response:
+        user = request.user
+        now = timezone.now()
+        active_sessions = AuthSession.objects.filter(
+            user=user,
+            is_revoked=False,
+            expires_at__gt=now,
+        )
+        revoked_count = active_sessions.update(
+            is_revoked=True,
+            revoked_at=now,
+            revoked_reason="ALL_SESSIONS_LOGOUT",
+            updated_at=now,
+        )
+
+        AuditEvent.objects.create(
+            actor_user=user,
+            event_type="AUTH_LOGOUT_ALL",
+            target_model="accounts.User",
+            target_id=str(user.id),
+            ip_address=_get_client_ip(request),
+            metadata={"revoked_sessions_count": revoked_count},
+        )
+        return Response(
+            {"status": "revoked_all", "sessions_revoked": revoked_count},
+            status=status.HTTP_200_OK,
+        )
+
+
 class CurrentUserAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -145,6 +195,9 @@ class CurrentUserAPIView(APIView):
 
 class TenantWorkspaceContextAPIView(APIView):
     permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "GET": set(TenantRole.values),
+    }
 
     def get(self, request: Request) -> Response:
         tenant = request.tenant
@@ -159,4 +212,269 @@ class TenantWorkspaceContextAPIView(APIView):
                 "khr_exchange_rate": str(tenant.khr_exchange_rate),
                 "tax_rate_percent": str(tenant.tax_rate_percent),
             }
+        )
+
+
+class TenantAuditEventListAPIView(APIView):
+    permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "GET": {TenantRole.TENANT_OWNER, TenantRole.TENANT_MANAGER},
+    }
+
+    def get(self, request: Request) -> Response:
+        events = AuditEvent.objects.filter(tenant=request.tenant)[:50]
+        return Response(
+            [
+                {
+                    "id": str(ev.id),
+                    "created_at": ev.created_at.isoformat(),
+                    "actor_user_id": str(ev.actor_user_id) if ev.actor_user_id else None,
+                    "event_type": ev.event_type,
+                    "target_model": ev.target_model,
+                    "target_id": ev.target_id,
+                    "metadata": ev.metadata,
+                }
+                for ev in events
+            ]
+        )
+
+
+class TenantMembershipListCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "GET": {TenantRole.TENANT_OWNER},
+        "POST": {TenantRole.TENANT_OWNER},
+    }
+
+    def get(self, request: Request) -> Response:
+        memberships = (
+            TenantMembership.objects.select_related("user")
+            .filter(tenant=request.tenant)
+            .order_by("created_at")
+        )
+        return Response(TenantMembershipSerializer(memberships, many=True).data)
+
+    @transaction.atomic
+    def post(self, request: Request) -> Response:
+        serializer = TenantMembershipCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        locked_tenant = Tenant.objects.select_for_update().get(id=request.tenant.id)
+        subscription = (
+            TenantSubscription.objects.select_for_update()
+            .select_related("plan")
+            .filter(tenant=locked_tenant)
+            .first()
+        )
+        if subscription is None:
+            raise ValidationError(
+                {"detail": "Tenant does not have an active subscription."}
+            )
+
+        active_staff_count = TenantMembership.objects.filter(
+            tenant=locked_tenant,
+            is_active=True,
+        ).count()
+        max_staff = subscription.plan.max_staff_users
+        if active_staff_count >= max_staff:
+            raise ValidationError(
+                {
+                    "detail": (
+                        f"Plan staff limit reached ({max_staff} active staff users "
+                        f"maximum for plan '{subscription.plan.code}')."
+                    )
+                }
+            )
+
+        staff_user = data.get("existing_user")
+        if staff_user is not None:
+            if TenantMembership.objects.filter(
+                tenant=locked_tenant,
+                user=staff_user,
+            ).exists():
+                raise ValidationError(
+                    {"email": "This user already has a membership in this tenant."}
+                )
+        else:
+            try:
+                staff_user = User.objects.create_user(
+                    email=data["email"],
+                    password=data["password"],
+                    full_name=data["full_name"],
+                    phone=data.get("phone", ""),
+                    preferred_language=data["preferred_language"],
+                )
+            except IntegrityError as exc:
+                raise ValidationError(
+                    {"email": "An account with this email already exists."}
+                ) from exc
+
+        try:
+            membership = TenantMembership.objects.create(
+                tenant=locked_tenant,
+                user=staff_user,
+                role=data["role"],
+                is_active=True,
+            )
+        except IntegrityError as exc:
+            raise ValidationError(
+                {"email": "This user already has a membership in this tenant."}
+            ) from exc
+
+        AuditEvent.objects.create(
+            actor_user=request.user,
+            tenant=locked_tenant,
+            event_type="TENANT_MEMBERSHIP_CREATED",
+            target_model="tenants.TenantMembership",
+            target_id=str(membership.id),
+            ip_address=_get_client_ip(request),
+            metadata={
+                "user_id": str(staff_user.id),
+                "email": staff_user.email,
+                "role": membership.role,
+                "is_active": membership.is_active,
+            },
+        )
+        return Response(
+            TenantMembershipSerializer(membership).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class TenantMembershipDetailAPIView(APIView):
+    permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "PATCH": {TenantRole.TENANT_OWNER},
+    }
+
+    @transaction.atomic
+    def patch(self, request: Request, membership_id: str) -> Response:
+        serializer = TenantMembershipUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        locked_tenant = Tenant.objects.select_for_update().get(id=request.tenant.id)
+        subscription = (
+            TenantSubscription.objects.select_for_update()
+            .select_related("plan")
+            .filter(tenant=locked_tenant)
+            .first()
+        )
+        if subscription is None:
+            raise ValidationError(
+                {"detail": "Tenant does not have an active subscription."}
+            )
+
+        membership = get_object_or_404(
+            TenantMembership.objects.select_for_update().select_related("user"),
+            id=membership_id,
+            tenant=locked_tenant,
+        )
+
+        previous_role = membership.role
+        previous_is_active = membership.is_active
+        new_role = data.get("role", previous_role)
+        new_is_active = data.get("is_active", previous_is_active)
+
+        if (
+            previous_role == TenantRole.TENANT_OWNER
+            and previous_is_active
+            and (new_role != TenantRole.TENANT_OWNER or not new_is_active)
+        ):
+            other_active_owners = (
+                TenantMembership.objects.filter(
+                    tenant=locked_tenant,
+                    role=TenantRole.TENANT_OWNER,
+                    is_active=True,
+                )
+                .exclude(id=membership.id)
+                .count()
+            )
+            if other_active_owners == 0:
+                raise ValidationError(
+                    {
+                        "detail": (
+                            "Cannot deactivate or demote the last active "
+                            "TENANT_OWNER of this tenant."
+                        )
+                    }
+                )
+
+        if not previous_is_active and new_is_active:
+            active_staff_count = TenantMembership.objects.filter(
+                tenant=locked_tenant,
+                is_active=True,
+            ).count()
+            max_staff = subscription.plan.max_staff_users
+            if active_staff_count >= max_staff:
+                raise ValidationError(
+                    {
+                        "detail": (
+                            f"Plan staff limit reached ({max_staff} active staff users "
+                            f"maximum for plan '{subscription.plan.code}')."
+                        )
+                    }
+                )
+
+        membership.role = new_role
+        membership.is_active = new_is_active
+        membership.save(update_fields=["role", "is_active", "updated_at"])
+
+        ip_addr = _get_client_ip(request)
+        if previous_role != new_role:
+            AuditEvent.objects.create(
+                actor_user=request.user,
+                tenant=locked_tenant,
+                event_type="TENANT_MEMBERSHIP_ROLE_CHANGED",
+                target_model="tenants.TenantMembership",
+                target_id=str(membership.id),
+                ip_address=ip_addr,
+                metadata={
+                    "user_id": str(membership.user_id),
+                    "email": membership.user.email,
+                    "previous_role": previous_role,
+                    "new_role": new_role,
+                },
+            )
+        if previous_is_active != new_is_active:
+            event_type = (
+                "TENANT_MEMBERSHIP_DEACTIVATED"
+                if not new_is_active
+                else "TENANT_MEMBERSHIP_REACTIVATED"
+            )
+            AuditEvent.objects.create(
+                actor_user=request.user,
+                tenant=locked_tenant,
+                event_type=event_type,
+                target_model="tenants.TenantMembership",
+                target_id=str(membership.id),
+                ip_address=ip_addr,
+                metadata={
+                    "user_id": str(membership.user_id),
+                    "email": membership.user.email,
+                    "role": new_role,
+                    "previous_is_active": previous_is_active,
+                    "new_is_active": new_is_active,
+                },
+            )
+        if previous_role == new_role and previous_is_active == new_is_active:
+            AuditEvent.objects.create(
+                actor_user=request.user,
+                tenant=locked_tenant,
+                event_type="TENANT_MEMBERSHIP_UPDATED",
+                target_model="tenants.TenantMembership",
+                target_id=str(membership.id),
+                ip_address=ip_addr,
+                metadata={
+                    "user_id": str(membership.user_id),
+                    "email": membership.user.email,
+                    "role": new_role,
+                    "is_active": new_is_active,
+                },
+            )
+
+        return Response(
+            TenantMembershipSerializer(membership).data,
+            status=status.HTTP_200_OK,
         )

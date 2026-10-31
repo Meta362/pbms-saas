@@ -2,6 +2,9 @@
 from apps.operations.views import (
     CustomerInvoiceListAPIView,
     CustomerInvoicePaymentAPIView,
+    CustomerInvoiceKhqrAPIView,
+    ImpositionCalculatorAPIView,
+    VatSalesJournalReportAPIView,
     CustomerListCreateAPIView,
     InventoryMovementListCreateAPIView,
     MaterialListCreateAPIView,
@@ -38,5 +41,20 @@ urlpatterns = [
         "tenant/invoices/<uuid:invoice_id>/payments/",
         CustomerInvoicePaymentAPIView.as_view(),
         name="tenant-invoice-payment",
+    ),
+    path(
+        "tenant/invoices/<uuid:invoice_id>/khqr/",
+        CustomerInvoiceKhqrAPIView.as_view(),
+        name="tenant-invoice-khqr",
+    ),
+    path(
+        "tenant/tools/imposition/",
+        ImpositionCalculatorAPIView.as_view(),
+        name="tenant-tool-imposition",
+    ),
+    path(
+        "tenant/reports/vat-sales-journal/",
+        VatSalesJournalReportAPIView.as_view(),
+        name="tenant-report-vat-sales",
     ),
 ]
