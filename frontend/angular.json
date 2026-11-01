@@ -19,7 +19,7 @@
             "tsConfig": "projects/public-site/tsconfig.app.json",
             "styles": ["projects/public-site/src/styles.css"],
             "scripts": [],
-            "assets": ["projects/super-admin/src/assets"]
+            "assets": ["projects/public-site/src/assets"]
           },
           "configurations": {
             "production": {
@@ -123,7 +123,7 @@
             "tsConfig": "projects/tenant-workspace/tsconfig.app.json",
             "styles": ["projects/tenant-workspace/src/styles.css"],
             "scripts": [],
-            "assets": ["projects/super-admin/src/assets"]
+            "assets": ["projects/tenant-workspace/src/assets"]
           },
           "configurations": {
             "production": {
