@@ -1,4 +1,4 @@
-﻿from django.contrib.auth.hashers import make_password
+from django.contrib.auth.hashers import make_password
 from datetime import timedelta
 from decimal import Decimal
 from django.contrib.auth import get_user_model

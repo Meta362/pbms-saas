@@ -1,4 +1,4 @@
-﻿from django.urls import path
+from django.urls import path
 from apps.tenants.views import (
     StaffInvitationListCreateAPIView,
     StaffInvitationRevokeAPIView,

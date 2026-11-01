@@ -1,4 +1,4 @@
-﻿from datetime import timedelta
+from datetime import timedelta
 from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -552,18 +552,21 @@ class AuthenticationAndTenantIsolationSecurityTests(TestCase):
         self.assertEqual(login_res.status_code, 200)
         self.assertTrue(AuthSession.objects.filter(user=self.user_a, is_revoked=False).exists())
 
-        # 2. Request password reset
-        reset_req_res = self.client.post(
+        # 2. Request password reset (default mode: token is NOT exposed, generic message)
+        req_default = self.client.post(
             "/api/v1/auth/password-reset/",
             {"email": self.user_a.email},
             format="json",
         )
-        self.assertEqual(reset_req_res.status_code, 200)
-        raw_token = reset_req_res.json().get("reset_token")
-        self.assertTrue(raw_token)
+        self.assertEqual(req_default.status_code, 200)
+        self.assertNotIn("reset_token", req_default.json())
+        self.assertEqual(
+            req_default.json()["detail"],
+            "If the account exists, a password reset link has been sent.",
+        )
         self.assertTrue(PasswordResetToken.objects.filter(user=self.user_a, is_used=False).exists())
 
-        # 3. Requesting reset for non-existent user returns generic message
+        # 3. Requesting reset for non-existent user returns completely identical response
         non_user_res = self.client.post(
             "/api/v1/auth/password-reset/",
             {"email": "nobody@unknown.com"},
@@ -571,8 +574,20 @@ class AuthenticationAndTenantIsolationSecurityTests(TestCase):
         )
         self.assertEqual(non_user_res.status_code, 200)
         self.assertNotIn("reset_token", non_user_res.json())
+        self.assertEqual(req_default.json(), non_user_res.json())
 
-        # 4. Confirm password reset with new password
+        # 4. In demo mode with AUTH_EXPOSE_RESET_TOKEN_FOR_DEMO=True, reset_token is provided
+        with self.settings(AUTH_EXPOSE_RESET_TOKEN_FOR_DEMO=True):
+            reset_req_res = self.client.post(
+                "/api/v1/auth/password-reset/",
+                {"email": self.user_a.email},
+                format="json",
+            )
+            self.assertEqual(reset_req_res.status_code, 200)
+            raw_token = reset_req_res.json().get("reset_token")
+            self.assertTrue(raw_token)
+
+        # 5. Confirm password reset with new password
         new_password = "NewStrongPassword#2026"
         confirm_res = self.client.post(
             "/api/v1/auth/password-reset-confirm/",
@@ -582,11 +597,11 @@ class AuthenticationAndTenantIsolationSecurityTests(TestCase):
         self.assertEqual(confirm_res.status_code, 200)
         self.assertEqual(confirm_res.json()["sessions_revoked"], 1)
 
-        # 5. Check sessions are revoked
+        # 6. Check sessions are revoked
         active_sessions = AuthSession.objects.filter(user=self.user_a, is_revoked=False)
         self.assertEqual(active_sessions.count(), 0)
 
-        # 6. Check login with old password fails
+        # 7. Check login with old password fails
         old_login = self.client.post(
             "/api/v1/auth/login/",
             {"email": self.user_a.email, "password": self.password},
@@ -594,7 +609,7 @@ class AuthenticationAndTenantIsolationSecurityTests(TestCase):
         )
         self.assertEqual(old_login.status_code, 401)
 
-        # 7. Check login with new password succeeds
+        # 8. Check login with new password succeeds
         new_login = self.client.post(
             "/api/v1/auth/login/",
             {"email": self.user_a.email, "password": new_password},
@@ -602,13 +617,14 @@ class AuthenticationAndTenantIsolationSecurityTests(TestCase):
         )
         self.assertEqual(new_login.status_code, 200)
 
-        # 8. Re-using the same reset token fails
+        # 9. Re-using the same reset token fails
         reuse_res = self.client.post(
             "/api/v1/auth/password-reset-confirm/",
             {"token": raw_token, "new_password": "AnotherPassword#2026"},
             format="json",
         )
         self.assertEqual(reuse_res.status_code, 400)
+
 
     def test_staff_invitation_lifecycle(self) -> None:
         """AUTH-003: Verifies tenant staff invitation lifecycle (invite, list, revoke, accept)."""
@@ -680,6 +696,98 @@ class AuthenticationAndTenantIsolationSecurityTests(TestCase):
         self.assertIsNotNone(new_membership)
         self.assertEqual(new_membership.role, TenantRole.INVENTORY_STAFF)
         self.assertTrue(new_membership.is_active)
+
+        # 6. Duplicate pending invitation rejected
+        self.client.force_authenticate(user=self.user_a)
+        self.client.credentials(HTTP_X_TENANT_ID=str(self.tenant_a.id))
+        dup_invite1 = self.client.post(
+            "/api/v1/tenant/invitations/",
+            {"email": "pending_dup@printshop.local", "role": TenantRole.SALES_STAFF},
+            format="json",
+        )
+        self.assertEqual(dup_invite1.status_code, 201)
+
+        dup_invite2 = self.client.post(
+            "/api/v1/tenant/invitations/",
+            {"email": "pending_dup@printshop.local", "role": TenantRole.DESIGNER},
+            format="json",
+        )
+        self.assertEqual(dup_invite2.status_code, 400)
+        self.assertIn("already exists", str(dup_invite2.json()))
+
+        # 7. Role boundaries: Create a Tenant Manager and verify they cannot invite a TENANT_OWNER
+        manager_user = User.objects.create_user(
+            email="manager@shop-a.com",
+            password=self.password,
+            full_name="Manager Shop A",
+        )
+        TenantMembership.objects.create(
+            tenant=self.tenant_a,
+            user=manager_user,
+            role=TenantRole.TENANT_MANAGER,
+            is_active=True,
+        )
+
+        self.client.force_authenticate(user=manager_user)
+        self.client.credentials(HTTP_X_TENANT_ID=str(self.tenant_a.id))
+
+        manager_illegal_invite = self.client.post(
+            "/api/v1/tenant/invitations/",
+            {"email": "new_owner@shop-a.com", "role": TenantRole.TENANT_OWNER},
+            format="json",
+        )
+        self.assertEqual(manager_illegal_invite.status_code, 400)
+        self.assertIn("Tenant Managers cannot invite", str(manager_illegal_invite.json()))
+
+        # 8. Role boundaries: Manager cannot revoke an invitation for a TENANT_OWNER
+        self.client.force_authenticate(user=self.user_a)
+        self.client.credentials(HTTP_X_TENANT_ID=str(self.tenant_a.id))
+        owner_invite = self.client.post(
+            "/api/v1/tenant/invitations/",
+            {"email": "co_owner@shop-a.com", "role": TenantRole.TENANT_OWNER},
+            format="json",
+        )
+        self.assertEqual(owner_invite.status_code, 201)
+        owner_invite_id = owner_invite.json()["id"]
+
+        self.client.force_authenticate(user=manager_user)
+        self.client.credentials(HTTP_X_TENANT_ID=str(self.tenant_a.id))
+        manager_revoke = self.client.post(f"/api/v1/tenant/invitations/{owner_invite_id}/revoke/")
+        self.assertEqual(manager_revoke.status_code, 400)
+        self.assertIn("Tenant Managers cannot revoke", str(manager_revoke.json()))
+
+        # 9. Seat limit enforcement on invitation acceptance
+        # Set max_staff_users = 3. Active members: owner_a, operator2, manager_user = 3.
+        self.starter_plan.max_staff_users = 3
+        self.starter_plan.save(update_fields=["max_staff_users", "updated_at"])
+
+        # Owner creates an invitation for a 4th member
+        self.client.force_authenticate(user=self.user_a)
+        self.client.credentials(HTTP_X_TENANT_ID=str(self.tenant_a.id))
+        # Need to temporarily expand plan to allow sending invitation
+        self.starter_plan.max_staff_users = 10
+        self.starter_plan.save(update_fields=["max_staff_users", "updated_at"])
+        seat_invite = self.client.post(
+            "/api/v1/tenant/invitations/",
+            {"email": "seat_test@shop-a.com", "role": TenantRole.SALES_STAFF},
+            format="json",
+        )
+        self.assertEqual(seat_invite.status_code, 201)
+        seat_token = seat_invite.json()["invitation_token"]
+
+        # Drop plan limit back down to 3 (matching active count of 3)
+        self.starter_plan.max_staff_users = 3
+        self.starter_plan.save(update_fields=["max_staff_users", "updated_at"])
+
+        self.client.credentials()  # clear auth
+        seat_accept = self.client.post(
+            "/api/v1/auth/accept-invitation/",
+            {"token": seat_token, "password": "SecurePassword#2026", "full_name": "Seat User"},
+            format="json",
+        )
+        self.assertEqual(seat_accept.status_code, 400)
+        self.assertIn("Plan staff limit reached", str(seat_accept.json()))
+
 
     def test_inactive_user_login_rejected(self) -> None:
         """SEC-GAP-01: Verifies that deactivating a user prevents login."""

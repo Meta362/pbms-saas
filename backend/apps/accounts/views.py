@@ -1,5 +1,6 @@
-﻿import hashlib
+import hashlib
 import secrets
+from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
 from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404
@@ -428,6 +429,15 @@ class TenantMembershipDetailAPIView(APIView):
         new_is_active = data.get("is_active", previous_is_active)
 
         if (
+            request.tenant_membership.role != TenantRole.TENANT_OWNER
+            and new_role == TenantRole.TENANT_OWNER
+        ):
+            raise ValidationError(
+                {"role": "Only a Tenant Owner can promote a member to the Tenant Owner role."}
+            )
+
+
+        if (
             previous_role == TenantRole.TENANT_OWNER
             and previous_is_active
             and (new_role != TenantRole.TENANT_OWNER or not new_is_active)
@@ -542,46 +552,45 @@ class PasswordResetRequestAPIView(APIView):
         user = User.objects.filter(email=email, is_active=True).first()
         ip_addr = _get_client_ip(request)
 
-        if user is None:
+        raw_token = None
+        if user is not None:
+            raw_token = secrets.token_urlsafe(32)
+            token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+            expires_at = timezone.now() + timezone.timedelta(hours=1)
+
+            PasswordResetToken.objects.create(
+                user=user,
+                token_hash=token_hash,
+                expires_at=expires_at,
+                ip_address=ip_addr,
+            )
+
+            AuditEvent.objects.create(
+                actor_user=user,
+                event_type="AUTH_PASSWORD_RESET_REQUESTED",
+                target_model="accounts.User",
+                target_id=str(user.id),
+                ip_address=ip_addr,
+                metadata={"email": user.email},
+            )
+        else:
+            # Timing mitigation: execute equivalent hashing workload for non-existent users
+            hashlib.sha256(b"pbms-dummy-timing-mitigation-token").hexdigest()
             AuditEvent.objects.create(
                 event_type="AUTH_PASSWORD_RESET_REQUESTED_UNKNOWN_USER",
                 target_model="accounts.User",
                 ip_address=ip_addr,
                 metadata={"email": email},
             )
-            return Response(
-                {"detail": "If the account exists, a password reset link has been sent."},
-                status=status.HTTP_200_OK,
-            )
 
-        raw_token = secrets.token_urlsafe(32)
-        token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
-        expires_at = timezone.now() + timezone.timedelta(hours=1)
+        resp_data = {
+            "detail": "If the account exists, a password reset link has been sent.",
+        }
+        if getattr(settings, "AUTH_EXPOSE_RESET_TOKEN_FOR_DEMO", False) and raw_token:
+            resp_data["reset_token"] = raw_token
 
-        PasswordResetToken.objects.create(
-            user=user,
-            token_hash=token_hash,
-            expires_at=expires_at,
-            ip_address=ip_addr,
-        )
+        return Response(resp_data, status=status.HTTP_200_OK)
 
-        AuditEvent.objects.create(
-            actor_user=user,
-            event_type="AUTH_PASSWORD_RESET_REQUESTED",
-            target_model="accounts.User",
-            target_id=str(user.id),
-            ip_address=ip_addr,
-            metadata={"email": user.email},
-        )
-
-        # In dev/demo environment, include reset_token in response for testing/demonstration
-        return Response(
-            {
-                "detail": "If the account exists, a password reset link has been sent.",
-                "reset_token": raw_token,
-            },
-            status=status.HTTP_200_OK,
-        )
 
 
 class PasswordResetConfirmAPIView(APIView):
@@ -685,8 +694,47 @@ class StaffInvitationAcceptAPIView(APIView):
             )
             raise ValidationError({"token": "Invalid or expired invitation token."})
 
+        locked_tenant = Tenant.objects.select_for_update().get(id=invitation.tenant_id)
+        if locked_tenant.status != TenantStatus.ACTIVE:
+            raise ValidationError({"detail": "This print shop is currently not active."})
+
         email = invitation.email.lower().strip()
         user = User.objects.filter(email=email).first()
+
+        # Enforce subscription staff seat limit under lock
+        subscription = (
+            TenantSubscription.objects.select_for_update()
+            .select_related("plan")
+            .filter(tenant=locked_tenant)
+            .first()
+        )
+        if subscription:
+            existing_active_membership = (
+                user is not None
+                and TenantMembership.objects.filter(
+                    tenant=locked_tenant,
+                    user=user,
+                    is_active=True,
+                ).exists()
+            )
+            if not existing_active_membership:
+                active_staff_count = TenantMembership.objects.filter(
+                    tenant=locked_tenant,
+                    is_active=True,
+                ).count()
+                if active_staff_count >= subscription.plan.max_staff_users:
+                    raise ValidationError(
+                        {
+                            "detail": (
+                                f"Plan staff limit reached ({subscription.plan.max_staff_users} "
+                                f"staff maximum for plan '{subscription.plan.code}')."
+                            )
+                        }
+                    )
+
+        now = timezone.now()
+        invitation.accepted_at = now
+        invitation.save(update_fields=["accepted_at", "updated_at"])
 
         if user is not None:
             if not user.is_active:
@@ -704,27 +752,36 @@ class StaffInvitationAcceptAPIView(APIView):
                 user_update_fields.append("preferred_language")
             user.save(update_fields=user_update_fields)
         else:
-            user = User.objects.create_user(
-                email=email,
-                password=password,
-                full_name=full_name or email.split("@")[0],
-                phone=phone,
-                preferred_language=preferred_language,
-            )
+            try:
+                user = User.objects.create_user(
+                    email=email,
+                    password=password,
+                    full_name=full_name or email.split("@")[0],
+                    phone=phone,
+                    preferred_language=preferred_language,
+                )
+            except IntegrityError:
+                user = User.objects.get(email=email)
+                user.set_password(password)
+                user.save(update_fields=["password", "updated_at"])
 
-        membership, _ = TenantMembership.objects.get_or_create(
-            tenant=invitation.tenant,
+        membership = TenantMembership.objects.filter(
+            tenant=locked_tenant,
             user=user,
-            defaults={"role": invitation.role, "is_active": True},
-        )
-        if not membership.is_active or membership.role != invitation.role:
+        ).first()
+
+        if membership is None:
+            membership = TenantMembership.objects.create(
+                tenant=locked_tenant,
+                user=user,
+                role=invitation.role,
+                is_active=True,
+            )
+        else:
             membership.role = invitation.role
             membership.is_active = True
             membership.save(update_fields=["role", "is_active", "updated_at"])
 
-        now = timezone.now()
-        invitation.accepted_at = now
-        invitation.save(update_fields=["accepted_at", "updated_at"])
 
         tokens = create_session_and_issue_tokens(
             user=user,

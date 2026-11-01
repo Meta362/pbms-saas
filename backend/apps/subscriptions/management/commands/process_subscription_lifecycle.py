@@ -67,6 +67,7 @@ class Command(BaseCommand):
                 TenantSubscription.objects.select_for_update()
                 .filter(
                     status__in=[SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING],
+                    current_period_end__isnull=False,
                     current_period_end__lt=eval_now,
                 )
             )
@@ -98,6 +99,7 @@ class Command(BaseCommand):
                 .select_related("tenant")
                 .filter(
                     status=SubscriptionStatus.PAST_DUE,
+                    current_period_end__isnull=False,
                     current_period_end__lt=grace_cutoff,
                 )
             )
@@ -109,8 +111,9 @@ class Command(BaseCommand):
                     sub.save(update_fields=["status", "updated_at"])
 
                     tenant = sub.tenant
-                    tenant.status = TenantStatus.SUSPENDED
-                    tenant.save(update_fields=["status", "updated_at"])
+                    if tenant.status != TenantStatus.OFFBOARDED:
+                        tenant.status = TenantStatus.SUSPENDED
+                        tenant.save(update_fields=["status", "updated_at"])
 
                     AuditEvent.objects.create(
                         tenant=tenant,

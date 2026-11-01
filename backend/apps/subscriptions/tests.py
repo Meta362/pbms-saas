@@ -1,4 +1,4 @@
-﻿from datetime import timedelta
+from datetime import timedelta
 from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -603,6 +603,30 @@ class SaaSSubscriptionAndSuperAdminGovernanceTests(TestCase):
 
         sub_3.refresh_from_db()
         self.assertEqual(sub_3.status, SubscriptionStatus.PAST_DUE)
+
+        # 4. Subsequent run produces 0 transitions (idempotent, no repeated churn)
+        subsequent_out = StringIO()
+        call_command("process_subscription_lifecycle", grace_days=7, stdout=subsequent_out)
+        self.assertIn("0 transitioned to PAST_DUE, 0 transitioned to SUSPENDED", subsequent_out.getvalue())
+
+        # 5. Offboarded tenant protection: an OFFBOARDED tenant status is never rewritten to SUSPENDED
+        tenant_offboarded = Tenant.objects.create(
+            name="Offboarded Shop",
+            slug="offboarded-shop",
+            status=TenantStatus.OFFBOARDED,
+        )
+        TenantSubscription.objects.create(
+            tenant=tenant_offboarded,
+            plan=starter_plan,
+            billing_cycle=BillingCycle.MONTHLY,
+            status=SubscriptionStatus.PAST_DUE,
+            current_period_start=now - timedelta(days=60),
+            current_period_end=now - timedelta(days=30),
+        )
+        call_command("process_subscription_lifecycle", grace_days=7, stdout=StringIO())
+        tenant_offboarded.refresh_from_db()
+        self.assertEqual(tenant_offboarded.status, TenantStatus.OFFBOARDED)
+
 
     def test_super_admin_reconcile_payment_reject_action(self) -> None:
         """SUB-002: Verifies SuperAdmin can reject manual bank transfer payments with audit logging."""

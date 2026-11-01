@@ -1,4 +1,4 @@
-﻿from decimal import Decimal
+from decimal import Decimal
 from rest_framework import serializers
 from apps.tenants.models import StaffInvitation, Tenant, TenantRole
 

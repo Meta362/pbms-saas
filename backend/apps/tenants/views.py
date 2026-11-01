@@ -1,4 +1,4 @@
-﻿import hashlib
+import hashlib
 import secrets
 from decimal import Decimal
 from django.db import transaction
@@ -145,6 +145,12 @@ class StaffInvitationListCreateAPIView(APIView):
         email = serializer.validated_data["email"]
         role = serializer.validated_data["role"]
 
+        # RBAC rule: TENANT_MANAGER cannot invite a member with the TENANT_OWNER role
+        if request.tenant_membership.role != TenantRole.TENANT_OWNER and role == TenantRole.TENANT_OWNER:
+            raise ValidationError(
+                {"role": "Tenant Managers cannot invite members with the Tenant Owner role."}
+            )
+
         locked_tenant = Tenant.objects.select_for_update().get(id=request.tenant.id)
 
         # Check tenant staff limit under lock
@@ -176,6 +182,18 @@ class StaffInvitationListCreateAPIView(APIView):
             is_active=True,
         ).exists():
             raise ValidationError("User is already an active member of this print shop.")
+
+        if StaffInvitation.objects.filter(
+            tenant=locked_tenant,
+            email=email,
+            is_revoked=False,
+            accepted_at__isnull=True,
+            expires_at__gt=timezone.now(),
+        ).exists():
+            raise ValidationError(
+                {"email": "A pending invitation for this email already exists in this print shop."}
+            )
+
 
         raw_token = secrets.token_urlsafe(32)
         token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
@@ -220,6 +238,11 @@ class StaffInvitationRevokeAPIView(APIView):
         )
         if invitation.accepted_at:
             raise ValidationError("Cannot revoke an invitation that has already been accepted.")
+
+        if request.tenant_membership.role != TenantRole.TENANT_OWNER and invitation.role == TenantRole.TENANT_OWNER:
+            raise ValidationError(
+                {"detail": "Tenant Managers cannot revoke an invitation for the Tenant Owner role."}
+            )
 
         invitation.is_revoked = True
         invitation.save(update_fields=["is_revoked", "updated_at"])

@@ -232,3 +232,9 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
 }
+
+# Explicit control over whether raw password reset tokens are exposed in API responses (demo/dev only)
+AUTH_EXPOSE_RESET_TOKEN_FOR_DEMO = os.getenv(
+    "AUTH_EXPOSE_RESET_TOKEN_FOR_DEMO",
+    "False",
+).lower() in ("true", "1")
