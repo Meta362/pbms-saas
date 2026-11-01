@@ -1,4 +1,4 @@
-from django.contrib.auth.hashers import make_password
+﻿from django.contrib.auth.hashers import make_password
 from datetime import timedelta
 from decimal import Decimal
 from django.contrib.auth import get_user_model
@@ -1495,3 +1495,169 @@ class CommercialToolsAndReportingTests(TestCase):
         self._login_as(self.designer_a, self.tenant_a)
         designer_res = self.client.get("/api/v1/tenant/reports/vat-sales-journal/")
         self.assertEqual(designer_res.status_code, 403)
+
+    def test_quotation_discount_cannot_exceed_subtotal(self) -> None:
+        """DOM-002: Verifies quotation creation rejects discount > subtotal."""
+        self._login_as(self.owner_a, self.tenant_a)
+        cust_res = self.client.post(
+            "/api/v1/tenant/customers/",
+            {"name": "Discount Boundary Client", "phone": "012333444"},
+            format="json",
+        )
+        self.assertEqual(cust_res.status_code, 201)
+        cust_id = cust_res.json()["id"]
+
+        # Attempt discount ($150.00) > subtotal ($100.00)
+        res = self.client.post(
+            "/api/v1/tenant/quotations/",
+            {
+                "customer_id": cust_id,
+                "title": "Invalid Discount Book",
+                "quantity": 100,
+                "unit_price_usd": "1.0000",
+                "discount_usd": "150.00",
+            },
+            format="json",
+        )
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("discount_usd", res.json())
+
+    def test_quotation_double_conversion_rejected(self) -> None:
+        """DOM-003: Verifies converting an already converted quotation returns 400."""
+        self._login_as(self.owner_a, self.tenant_a)
+        cust_res = self.client.post(
+            "/api/v1/tenant/customers/",
+            {"name": "Convert Test Client", "phone": "012555666"},
+            format="json",
+        )
+        cust_id = cust_res.json()["id"]
+        q_res = self.client.post(
+            "/api/v1/tenant/quotations/",
+            {
+                "customer_id": cust_id,
+                "title": "Brochure Run",
+                "quantity": 100,
+                "unit_price_usd": "1.0000",
+            },
+            format="json",
+        )
+        q_id = q_res.json()["id"]
+
+        # First conversion succeeds
+        conv1 = self.client.post(
+            f"/api/v1/tenant/quotations/{q_id}/convert/",
+            {"artwork_file_name": "flyer.pdf"},
+            format="json",
+        )
+        self.assertEqual(conv1.status_code, 201)
+
+        # Second conversion fails
+        conv2 = self.client.post(
+            f"/api/v1/tenant/quotations/{q_id}/convert/",
+            {"artwork_file_name": "flyer_again.pdf"},
+            format="json",
+        )
+        self.assertEqual(conv2.status_code, 400)
+        self.assertIn("already been converted", str(conv2.json()))
+
+    def test_customer_invoice_overpayment_rejected(self) -> None:
+        """DOM-004: Verifies customer invoice rejects payment amount exceeding balance due."""
+        self._login_as(self.owner_a, self.tenant_a)
+        cust_res = self.client.post(
+            "/api/v1/tenant/customers/",
+            {"name": "Overpay Client", "phone": "012777888"},
+            format="json",
+        )
+        cust_id = cust_res.json()["id"]
+        q_res = self.client.post(
+            "/api/v1/tenant/quotations/",
+            {
+                "customer_id": cust_id,
+                "title": "Overpay Cards",
+                "quantity": 100,
+                "unit_price_usd": "1.0000",
+            },
+            format="json",
+        )
+        q_id = q_res.json()["id"]
+        conv = self.client.post(
+            f"/api/v1/tenant/quotations/{q_id}/convert/",
+            {"artwork_file_name": "cards.pdf"},
+            format="json",
+        )
+        inv_id = conv.json()["invoice_id"]
+
+        # Record payment exceeding balance due ($9999.00 vs ~$100)
+        pay_res = self.client.post(
+            f"/api/v1/tenant/invoices/{inv_id}/payments/",
+            {"amount_usd": "9999.00", "payment_method": "CASH", "reference_number": "EXCESS-01"},
+            format="json",
+        )
+        self.assertEqual(pay_res.status_code, 400)
+        self.assertIn("exceeds remaining balance due", str(pay_res.json()))
+
+    def test_customer_invoice_payment_on_voided_invoice_rejected(self) -> None:
+        """DOM-005: Verifies recording payment on a voided invoice returns 400."""
+        from apps.operations.models import CustomerInvoice, InvoiceStatus
+
+        self._login_as(self.owner_a, self.tenant_a)
+        cust_res = self.client.post(
+            "/api/v1/tenant/customers/",
+            {"name": "Void Pay Client", "phone": "012999000"},
+            format="json",
+        )
+        cust_id = cust_res.json()["id"]
+        q_res = self.client.post(
+            "/api/v1/tenant/quotations/",
+            {
+                "customer_id": cust_id,
+                "title": "Void Payment Cards",
+                "quantity": 100,
+                "unit_price_usd": "1.0000",
+            },
+            format="json",
+        )
+        q_id = q_res.json()["id"]
+        conv = self.client.post(
+            f"/api/v1/tenant/quotations/{q_id}/convert/",
+            {"artwork_file_name": "void_cards.pdf"},
+            format="json",
+        )
+        inv_id = conv.json()["invoice_id"]
+
+        # Void invoice
+        invoice = CustomerInvoice.objects.get(id=inv_id)
+        invoice.status = InvoiceStatus.VOIDED
+        invoice.save(update_fields=["status", "updated_at"])
+
+        pay_res = self.client.post(
+            f"/api/v1/tenant/invoices/{inv_id}/payments/",
+            {"amount_usd": "10.00", "payment_method": "CASH"},
+            format="json",
+        )
+        self.assertEqual(pay_res.status_code, 400)
+        self.assertIn("Cannot record payment on a voided invoice", str(pay_res.json()))
+
+    def test_inventory_movement_zero_delta_rejected(self) -> None:
+        """DOM-006: Verifies inventory movement with quantity_delta = 0 is rejected."""
+        self._login_as(self.owner_a, self.tenant_a)
+        mat_res = self.client.post(
+            "/api/v1/tenant/materials/",
+            {
+                "name": "Zero Delta Paper",
+                "sku": "ZDELTA-01",
+                "unit": "SHEET",
+                "unit_cost_usd": "0.10",
+                "reorder_level": 50,
+            },
+            format="json",
+        )
+        mat_id = mat_res.json()["id"]
+
+        zero_res = self.client.post(
+            "/api/v1/tenant/inventory-movements/",
+            {"material_id": mat_id, "transaction_type": "PURCHASE", "quantity_delta": "0.000"},
+            format="json",
+        )
+        self.assertEqual(zero_res.status_code, 400)
+        self.assertIn("quantity_delta", zero_res.json())

@@ -1,4 +1,4 @@
-from datetime import timedelta
+﻿from datetime import timedelta
 from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -7,6 +7,7 @@ from rest_framework.test import APIClient
 from apps.accounts.models import PlatformRole
 from apps.subscriptions.models import (
     BillingCycle,
+    PaymentProvider,
     Plan,
     SubscriptionStatus,
     TenantSubscription,
@@ -516,3 +517,130 @@ class SaaSSubscriptionAndSuperAdminGovernanceTests(TestCase):
         self.assertIn("churn_risk_count", metrics)
         self.assertIn("active_announcements_count", metrics)
 
+    def test_process_subscription_lifecycle_command_past_due_and_suspension(self) -> None:
+        """SUB-001: Verifies management command transitions ACTIVE -> PAST_DUE and PAST_DUE -> SUSPENDED."""
+        from django.core.management import call_command
+        from io import StringIO
+        from apps.core.models import AuditEvent
+
+        ensure_default_plans()
+        starter_plan = Plan.objects.get(code="starter")
+        now = timezone.now()
+
+        # Tenant 1: Active but expired 1 day ago
+        tenant_1 = Tenant.objects.create(name="Expiring Shop", slug="expiring-shop", status=TenantStatus.ACTIVE)
+        sub_1 = TenantSubscription.objects.create(
+            tenant=tenant_1,
+            plan=starter_plan,
+            billing_cycle=BillingCycle.MONTHLY,
+            status=SubscriptionStatus.ACTIVE,
+            current_period_start=now - timedelta(days=31),
+            current_period_end=now - timedelta(days=1),
+        )
+
+        # Tenant 2: Already PAST_DUE and period ended 10 days ago (past 7-day grace)
+        tenant_2 = Tenant.objects.create(name="Grace Expired Shop", slug="grace-expired-shop", status=TenantStatus.ACTIVE)
+        sub_2 = TenantSubscription.objects.create(
+            tenant=tenant_2,
+            plan=starter_plan,
+            billing_cycle=BillingCycle.MONTHLY,
+            status=SubscriptionStatus.PAST_DUE,
+            current_period_start=now - timedelta(days=40),
+            current_period_end=now - timedelta(days=10),
+        )
+
+        # 1. Test Dry Run: Database should not be modified
+        out = StringIO()
+        call_command("process_subscription_lifecycle", dry_run=True, stdout=out)
+        self.assertIn("SIMULATION - DRY RUN", out.getvalue())
+
+        sub_1.refresh_from_db()
+        self.assertEqual(sub_1.status, SubscriptionStatus.ACTIVE)
+        tenant_2.refresh_from_db()
+        self.assertEqual(tenant_2.status, TenantStatus.ACTIVE)
+
+        # 2. Test Live Run: Transitions should commit
+        out = StringIO()
+        call_command("process_subscription_lifecycle", grace_days=7, stdout=out)
+        self.assertIn("COMMITTED", out.getvalue())
+
+        sub_1.refresh_from_db()
+        self.assertEqual(sub_1.status, SubscriptionStatus.PAST_DUE)
+
+        sub_2.refresh_from_db()
+        self.assertEqual(sub_2.status, SubscriptionStatus.SUSPENDED)
+        tenant_2.refresh_from_db()
+        self.assertEqual(tenant_2.status, TenantStatus.SUSPENDED)
+
+        # Verify audit logs
+        self.assertTrue(
+            AuditEvent.objects.filter(
+                event_type="SAAS_SUBSCRIPTION_PAST_DUE",
+                tenant=tenant_1,
+            ).exists()
+        )
+        self.assertTrue(
+            AuditEvent.objects.filter(
+                event_type="SAAS_TENANT_AUTO_SUSPENDED_GRACE_EXPIRED",
+                tenant=tenant_2,
+            ).exists()
+        )
+
+        # 3. Test Time-travel with --as-of
+        tenant_3 = Tenant.objects.create(name="Future Shop", slug="future-shop", status=TenantStatus.ACTIVE)
+        sub_3 = TenantSubscription.objects.create(
+            tenant=tenant_3,
+            plan=starter_plan,
+            billing_cycle=BillingCycle.MONTHLY,
+            status=SubscriptionStatus.ACTIVE,
+            current_period_start=now,
+            current_period_end=now + timedelta(days=15),
+        )
+
+        # Evaluate as of 20 days into future
+        future_date = (now + timedelta(days=20)).isoformat()
+        call_command("process_subscription_lifecycle", as_of=future_date, stdout=StringIO())
+
+        sub_3.refresh_from_db()
+        self.assertEqual(sub_3.status, SubscriptionStatus.PAST_DUE)
+
+    def test_super_admin_reconcile_payment_reject_action(self) -> None:
+        """SUB-002: Verifies SuperAdmin can reject manual bank transfer payments with audit logging."""
+        from apps.subscriptions.models import PaymentStatus, SubscriptionPayment
+
+        ensure_default_plans()
+        starter_plan = Plan.objects.get(code="starter")
+        tenant = Tenant.objects.create(name="Reject Test Shop", slug="reject-test-shop", status=TenantStatus.PENDING_REVIEW)
+        sub = TenantSubscription.objects.create(
+            tenant=tenant,
+            plan=starter_plan,
+            billing_cycle=BillingCycle.MONTHLY,
+            status=SubscriptionStatus.PENDING_PAYMENT,
+        )
+        payment = SubscriptionPayment.objects.create(
+            tenant=tenant,
+            subscription=sub,
+            amount_usd=Decimal("29.00"),
+            provider=PaymentProvider.MANUAL_TRANSFER,
+            provider_reference="ABA-REJECT-001",
+            idempotency_key="reject-test-key-001",
+            status=PaymentStatus.PENDING,
+        )
+
+        self.client.force_authenticate(user=self.super_admin)
+
+        res = self.client.post(
+            f"/api/v1/super-admin/payments/{payment.id}/reconcile/",
+            {"action": "REJECT", "notes": "Bank transfer reference not found in bank ledger."},
+            format="json",
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["payment_status"], PaymentStatus.REJECTED)
+
+        payment.refresh_from_db()
+        self.assertEqual(payment.status, PaymentStatus.REJECTED)
+        self.assertEqual(payment.notes, "Bank transfer reference not found in bank ledger.")
+
+        # Tenant stays PENDING_REVIEW and subscription stays INCOMPLETE
+        tenant.refresh_from_db()
+        self.assertEqual(tenant.status, TenantStatus.PENDING_REVIEW)

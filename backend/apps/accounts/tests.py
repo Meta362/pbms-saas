@@ -1,4 +1,4 @@
-from datetime import timedelta
+﻿from datetime import timedelta
 from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -8,7 +8,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.test import APIClient, APIRequestFactory, force_authenticate
 from rest_framework.views import APIView
-from apps.accounts.models import AuthSession
+from apps.accounts.models import AuthSession, PasswordResetToken
 from apps.core.models import AuditEvent
 from apps.subscriptions.models import (
     BillingCycle,
@@ -17,7 +17,7 @@ from apps.subscriptions.models import (
     TenantSubscription,
 )
 from apps.subscriptions.views import ensure_default_plans
-from apps.tenants.models import Tenant, TenantMembership, TenantRole, TenantStatus
+from apps.tenants.models import StaffInvitation, Tenant, TenantMembership, TenantRole, TenantStatus
 from apps.tenants.permissions import HasActiveTenantMembership
 
 User = get_user_model()
@@ -495,3 +495,207 @@ class AuthenticationAndTenantIsolationSecurityTests(TestCase):
         audit_res = self.client.get("/api/v1/tenant/audit-events/")
         self.assertEqual(audit_res.status_code, 200)
         self.assertGreaterEqual(len(audit_res.json()), 3)
+
+    def test_user_profile_me_get_and_patch(self) -> None:
+        """AUTH-001: Verifies GET /auth/me/ includes phone and PATCH updates profile safely."""
+        self.user_a.phone = "012345678"
+        self.user_a.save(update_fields=["phone", "updated_at"])
+
+        self.client.force_authenticate(user=self.user_a)
+
+        # 1. GET /api/v1/auth/me/ returns phone
+        get_res = self.client.get("/api/v1/auth/me/")
+        self.assertEqual(get_res.status_code, 200)
+        self.assertEqual(get_res.json()["phone"], "012345678")
+        self.assertEqual(get_res.json()["full_name"], "Sokha Shop A")
+
+        # 2. PATCH /api/v1/auth/me/ updates full_name and phone
+        patch_res = self.client.patch(
+            "/api/v1/auth/me/",
+            {
+                "full_name": "Sokha Shop A (Updated)",
+                "phone": "098765432",
+                "preferred_language": "en",
+            },
+            format="json",
+        )
+        self.assertEqual(patch_res.status_code, 200)
+        self.assertEqual(patch_res.json()["full_name"], "Sokha Shop A (Updated)")
+        self.assertEqual(patch_res.json()["phone"], "098765432")
+        self.assertEqual(patch_res.json()["preferred_language"], "en")
+
+        self.user_a.refresh_from_db()
+        self.assertEqual(self.user_a.full_name, "Sokha Shop A (Updated)")
+        self.assertEqual(self.user_a.phone, "098765432")
+        self.assertEqual(self.user_a.preferred_language, "en")
+
+        # 3. Privilege escalation injection rejected
+        priv_res = self.client.patch(
+            "/api/v1/auth/me/",
+            {"platform_role": "SUPER_ADMIN", "is_staff": True},
+            format="json",
+        )
+        self.assertEqual(priv_res.status_code, 400)
+
+        # 4. Empty PATCH rejected
+        empty_res = self.client.patch("/api/v1/auth/me/", {}, format="json")
+        self.assertEqual(empty_res.status_code, 400)
+
+    def test_password_reset_flow_and_session_revocation(self) -> None:
+        """AUTH-002: Verifies password reset request, confirmation, and session mass-revocation."""
+        # 1. User logs in and gets an active session
+        login_res = self.client.post(
+            "/api/v1/auth/login/",
+            {"email": self.user_a.email, "password": self.password},
+            format="json",
+        )
+        self.assertEqual(login_res.status_code, 200)
+        self.assertTrue(AuthSession.objects.filter(user=self.user_a, is_revoked=False).exists())
+
+        # 2. Request password reset
+        reset_req_res = self.client.post(
+            "/api/v1/auth/password-reset/",
+            {"email": self.user_a.email},
+            format="json",
+        )
+        self.assertEqual(reset_req_res.status_code, 200)
+        raw_token = reset_req_res.json().get("reset_token")
+        self.assertTrue(raw_token)
+        self.assertTrue(PasswordResetToken.objects.filter(user=self.user_a, is_used=False).exists())
+
+        # 3. Requesting reset for non-existent user returns generic message
+        non_user_res = self.client.post(
+            "/api/v1/auth/password-reset/",
+            {"email": "nobody@unknown.com"},
+            format="json",
+        )
+        self.assertEqual(non_user_res.status_code, 200)
+        self.assertNotIn("reset_token", non_user_res.json())
+
+        # 4. Confirm password reset with new password
+        new_password = "NewStrongPassword#2026"
+        confirm_res = self.client.post(
+            "/api/v1/auth/password-reset-confirm/",
+            {"token": raw_token, "new_password": new_password},
+            format="json",
+        )
+        self.assertEqual(confirm_res.status_code, 200)
+        self.assertEqual(confirm_res.json()["sessions_revoked"], 1)
+
+        # 5. Check sessions are revoked
+        active_sessions = AuthSession.objects.filter(user=self.user_a, is_revoked=False)
+        self.assertEqual(active_sessions.count(), 0)
+
+        # 6. Check login with old password fails
+        old_login = self.client.post(
+            "/api/v1/auth/login/",
+            {"email": self.user_a.email, "password": self.password},
+            format="json",
+        )
+        self.assertEqual(old_login.status_code, 401)
+
+        # 7. Check login with new password succeeds
+        new_login = self.client.post(
+            "/api/v1/auth/login/",
+            {"email": self.user_a.email, "password": new_password},
+            format="json",
+        )
+        self.assertEqual(new_login.status_code, 200)
+
+        # 8. Re-using the same reset token fails
+        reuse_res = self.client.post(
+            "/api/v1/auth/password-reset-confirm/",
+            {"token": raw_token, "new_password": "AnotherPassword#2026"},
+            format="json",
+        )
+        self.assertEqual(reuse_res.status_code, 400)
+
+    def test_staff_invitation_lifecycle(self) -> None:
+        """AUTH-003: Verifies tenant staff invitation lifecycle (invite, list, revoke, accept)."""
+        self.client.force_authenticate(user=self.user_a)
+        self.client.credentials(HTTP_X_TENANT_ID=str(self.tenant_a.id))
+
+        # 1. Tenant Owner invites a new staff member
+        invite_res = self.client.post(
+            "/api/v1/tenant/invitations/",
+            {"email": "operator@printshop.local", "role": TenantRole.PRODUCTION_STAFF},
+            format="json",
+        )
+        self.assertEqual(invite_res.status_code, 201)
+        raw_token = invite_res.json()["invitation_token"]
+        invite_id = invite_res.json()["id"]
+
+        # 2. List invitations
+        list_res = self.client.get("/api/v1/tenant/invitations/")
+        self.assertEqual(list_res.status_code, 200)
+        self.assertEqual(len(list_res.json()), 1)
+        self.assertEqual(list_res.json()[0]["email"], "operator@printshop.local")
+
+        # 3. Test revoking invitation
+        revoke_res = self.client.post(f"/api/v1/tenant/invitations/{invite_id}/revoke/")
+        self.assertEqual(revoke_res.status_code, 200)
+
+        # 4. Attempting to accept a revoked invitation fails
+        accept_revoked_res = self.client.post(
+            "/api/v1/auth/accept-invitation/",
+            {
+                "token": raw_token,
+                "password": "SecureStaffPass#2026",
+                "full_name": "Print Operator",
+            },
+            format="json",
+        )
+        self.assertEqual(accept_revoked_res.status_code, 400)
+
+        # 5. Issue fresh invitation and accept it
+        fresh_invite = self.client.post(
+            "/api/v1/tenant/invitations/",
+            {"email": "operator2@printshop.local", "role": TenantRole.INVENTORY_STAFF},
+            format="json",
+        )
+        self.assertEqual(fresh_invite.status_code, 201)
+        fresh_token = fresh_invite.json()["invitation_token"]
+
+        # Accept fresh invitation
+        self.client.credentials()  # clear auth
+        accept_res = self.client.post(
+            "/api/v1/auth/accept-invitation/",
+            {
+                "token": fresh_token,
+                "password": "SecureStaffPass#2026",
+                "full_name": "Inventory Operator",
+                "phone": "012888999",
+            },
+            format="json",
+        )
+        self.assertEqual(accept_res.status_code, 200)
+        self.assertIn("tokens", accept_res.json())
+        self.assertEqual(accept_res.json()["user"]["email"], "operator2@printshop.local")
+
+        # Check membership created
+        new_membership = TenantMembership.objects.filter(
+            tenant=self.tenant_a,
+            user__email="operator2@printshop.local",
+        ).first()
+        self.assertIsNotNone(new_membership)
+        self.assertEqual(new_membership.role, TenantRole.INVENTORY_STAFF)
+        self.assertTrue(new_membership.is_active)
+
+    def test_inactive_user_login_rejected(self) -> None:
+        """SEC-GAP-01: Verifies that deactivating a user prevents login."""
+        self.user_b.is_active = False
+        self.user_b.save(update_fields=["is_active", "updated_at"])
+
+        res = self.client.post(
+            "/api/v1/auth/login/",
+            {"email": self.user_b.email, "password": self.password},
+            format="json",
+        )
+        self.assertEqual(res.status_code, 401)
+        self.assertEqual(res.json()["detail"], "Invalid email or password.")
+        self.assertTrue(
+            AuditEvent.objects.filter(
+                event_type="AUTH_LOGIN_FAILED",
+                metadata__attempted_email=self.user_b.email,
+            ).exists()
+        )

@@ -1,10 +1,13 @@
-from django.urls import path
+﻿from django.urls import path
 from apps.accounts.views import (
     CurrentUserAPIView,
     LoginAPIView,
     LogoutAPIView,
     LogoutAllAPIView,
+    PasswordResetConfirmAPIView,
+    PasswordResetRequestAPIView,
     RefreshTokenAPIView,
+    StaffInvitationAcceptAPIView,
     TenantAuditEventListAPIView,
     TenantMembershipDetailAPIView,
     TenantMembershipListCreateAPIView,
@@ -16,6 +19,9 @@ urlpatterns = [
     path("auth/refresh/", RefreshTokenAPIView.as_view(), name="auth-refresh"),
     path("auth/logout/", LogoutAPIView.as_view(), name="auth-logout"),
     path("auth/logout-all/", LogoutAllAPIView.as_view(), name="auth-logout-all"),
+    path("auth/password-reset/", PasswordResetRequestAPIView.as_view(), name="auth-password-reset"),
+    path("auth/password-reset-confirm/", PasswordResetConfirmAPIView.as_view(), name="auth-password-reset-confirm"),
+    path("auth/accept-invitation/", StaffInvitationAcceptAPIView.as_view(), name="auth-accept-invitation"),
     path("auth/me/", CurrentUserAPIView.as_view(), name="auth-me"),
     path("tenant/context/", TenantWorkspaceContextAPIView.as_view(), name="tenant-context"),
     path("tenant/audit-events/", TenantAuditEventListAPIView.as_view(), name="tenant-audit-events"),

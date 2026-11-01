@@ -1,4 +1,4 @@
-from django.contrib.auth import get_user_model
+﻿from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
@@ -116,3 +116,76 @@ class TenantMembershipUpdateSerializer(serializers.Serializer):
                 {"detail": "At least one of 'role' or 'is_active' must be provided."}
             )
         return attrs
+
+
+class UserProfileUpdateSerializer(serializers.Serializer):
+    full_name = serializers.CharField(max_length=150, required=False)
+    phone = serializers.CharField(max_length=32, required=False, allow_blank=True)
+    preferred_language = serializers.ChoiceField(
+        choices=LanguagePreference.choices, required=False
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        forbidden_keys = {
+            "email",
+            "is_staff",
+            "is_superuser",
+            "is_platform_staff",
+            "platform_role",
+            "is_active",
+        }
+        if isinstance(self.initial_data, dict):
+            injected = forbidden_keys.intersection(self.initial_data.keys())
+            if injected:
+                raise serializers.ValidationError(
+                    {"detail": "Cannot update privilege or identity fields via profile endpoint."}
+                )
+        if not attrs:
+            raise serializers.ValidationError({"detail": "At least one field must be provided."})
+        return attrs
+
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+    def validate_email(self, value: str) -> str:
+        return value.lower().strip()
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    token = serializers.CharField()
+    new_password = serializers.CharField(
+        min_length=10,
+        write_only=True,
+        trim_whitespace=False,
+    )
+
+    def validate_new_password(self, value: str) -> str:
+        try:
+            validate_password(value)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(list(exc.messages)) from exc
+        return value
+
+
+class StaffInvitationAcceptSerializer(serializers.Serializer):
+    token = serializers.CharField()
+    password = serializers.CharField(
+        min_length=10,
+        write_only=True,
+        trim_whitespace=False,
+    )
+    full_name = serializers.CharField(max_length=150, required=False, allow_blank=True, default="")
+    phone = serializers.CharField(max_length=32, required=False, allow_blank=True, default="")
+    preferred_language = serializers.ChoiceField(
+        choices=LanguagePreference.choices,
+        required=False,
+        default=LanguagePreference.KHMER,
+    )
+
+    def validate_password(self, value: str) -> str:
+        try:
+            validate_password(value)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(list(exc.messages)) from exc
+        return value

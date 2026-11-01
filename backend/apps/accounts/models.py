@@ -113,3 +113,27 @@ class AuthSession(TimeStampedUUIDModel):
     def __str__(self) -> str:
         status = "REVOKED" if self.is_revoked else "ACTIVE"
         return f"Session {self.id} ({self.user.email}) [{status}]"
+
+
+class PasswordResetToken(TimeStampedUUIDModel):
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="password_reset_tokens",
+    )
+    token_hash = models.CharField(max_length=64, db_index=True)
+    expires_at = models.DateTimeField(db_index=True)
+    is_used = models.BooleanField(default=False, db_index=True)
+    used_at = models.DateTimeField(null=True, blank=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+
+    class Meta:
+        db_table = "accounts_passwordresettoken"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["token_hash", "is_used", "expires_at"]),
+        ]
+
+    def __str__(self) -> str:
+        status = "USED" if self.is_used else "ACTIVE"
+        return f"PasswordResetToken for {self.user.email} [{status}]"

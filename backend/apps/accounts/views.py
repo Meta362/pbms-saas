@@ -1,3 +1,5 @@
+﻿import hashlib
+import secrets
 from django.contrib.auth import authenticate, get_user_model
 from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404
@@ -9,17 +11,21 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from apps.accounts.jwt_service import create_session_and_issue_tokens, rotate_refresh_token
-from apps.accounts.models import AuthSession
+from apps.accounts.models import AuthSession, PasswordResetToken
 from apps.accounts.serializers import (
     LoginRequestSerializer,
+    PasswordResetConfirmSerializer,
+    PasswordResetRequestSerializer,
     RefreshTokenRequestSerializer,
+    StaffInvitationAcceptSerializer,
     TenantMembershipCreateSerializer,
     TenantMembershipSerializer,
     TenantMembershipUpdateSerializer,
+    UserProfileUpdateSerializer,
 )
 from apps.core.models import AuditEvent
 from apps.subscriptions.models import TenantSubscription
-from apps.tenants.models import Tenant, TenantMembership, TenantRole, TenantStatus
+from apps.tenants.models import StaffInvitation, Tenant, TenantMembership, TenantRole, TenantStatus
 from apps.tenants.permissions import HasActiveTenantMembership
 
 User = get_user_model()
@@ -186,11 +192,55 @@ class CurrentUserAPIView(APIView):
                 "id": str(user.id),
                 "email": user.email,
                 "full_name": user.full_name,
+                "phone": user.phone,
                 "platform_role": user.platform_role,
                 "preferred_language": user.preferred_language,
                 "memberships": _serialize_user_memberships(user),
             }
         )
+
+    def patch(self, request: Request) -> Response:
+        serializer = UserProfileUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = request.user
+        data = serializer.validated_data
+        updated_fields = ["updated_at"]
+
+        if "full_name" in data:
+            user.full_name = data["full_name"].strip()
+            updated_fields.append("full_name")
+        if "phone" in data:
+            user.phone = data["phone"].strip()
+            updated_fields.append("phone")
+        if "preferred_language" in data:
+            user.preferred_language = data["preferred_language"]
+            updated_fields.append("preferred_language")
+
+        user.save(update_fields=updated_fields)
+
+        AuditEvent.objects.create(
+            actor_user=user,
+            event_type="USER_PROFILE_UPDATED",
+            target_model="accounts.User",
+            target_id=str(user.id),
+            ip_address=_get_client_ip(request),
+            metadata={
+                "updated_fields": [f for f in updated_fields if f != "updated_at"],
+            },
+        )
+        return Response(
+            {
+                "id": str(user.id),
+                "email": user.email,
+                "full_name": user.full_name,
+                "phone": user.phone,
+                "platform_role": user.platform_role,
+                "preferred_language": user.preferred_language,
+                "memberships": _serialize_user_memberships(user),
+            },
+            status=status.HTTP_200_OK,
+        )
+
 
 
 class TenantWorkspaceContextAPIView(APIView):
@@ -476,5 +526,238 @@ class TenantMembershipDetailAPIView(APIView):
 
         return Response(
             TenantMembershipSerializer(membership).data,
+            status=status.HTTP_200_OK,
+        )
+
+
+class PasswordResetRequestAPIView(APIView):
+    permission_classes = [AllowAny]
+    throttle_scope = "auth_login"
+
+    def post(self, request: Request) -> Response:
+        serializer = PasswordResetRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        email = serializer.validated_data["email"]
+        user = User.objects.filter(email=email, is_active=True).first()
+        ip_addr = _get_client_ip(request)
+
+        if user is None:
+            AuditEvent.objects.create(
+                event_type="AUTH_PASSWORD_RESET_REQUESTED_UNKNOWN_USER",
+                target_model="accounts.User",
+                ip_address=ip_addr,
+                metadata={"email": email},
+            )
+            return Response(
+                {"detail": "If the account exists, a password reset link has been sent."},
+                status=status.HTTP_200_OK,
+            )
+
+        raw_token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+        expires_at = timezone.now() + timezone.timedelta(hours=1)
+
+        PasswordResetToken.objects.create(
+            user=user,
+            token_hash=token_hash,
+            expires_at=expires_at,
+            ip_address=ip_addr,
+        )
+
+        AuditEvent.objects.create(
+            actor_user=user,
+            event_type="AUTH_PASSWORD_RESET_REQUESTED",
+            target_model="accounts.User",
+            target_id=str(user.id),
+            ip_address=ip_addr,
+            metadata={"email": user.email},
+        )
+
+        # In dev/demo environment, include reset_token in response for testing/demonstration
+        return Response(
+            {
+                "detail": "If the account exists, a password reset link has been sent.",
+                "reset_token": raw_token,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class PasswordResetConfirmAPIView(APIView):
+    permission_classes = [AllowAny]
+    throttle_scope = "auth_login"
+
+    @transaction.atomic
+    def post(self, request: Request) -> Response:
+        serializer = PasswordResetConfirmSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        raw_token = serializer.validated_data["token"]
+        new_password = serializer.validated_data["new_password"]
+        token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+        ip_addr = _get_client_ip(request)
+
+        reset_token = (
+            PasswordResetToken.objects.select_for_update()
+            .select_related("user")
+            .filter(token_hash=token_hash, is_used=False)
+            .first()
+        )
+
+        if reset_token is None or reset_token.expires_at <= timezone.now():
+            AuditEvent.objects.create(
+                event_type="AUTH_PASSWORD_RESET_FAILED_INVALID_TOKEN",
+                target_model="accounts.PasswordResetToken",
+                ip_address=ip_addr,
+            )
+            raise ValidationError({"token": "Invalid or expired reset token."})
+
+        user = reset_token.user
+        if not user.is_active:
+            raise ValidationError({"detail": "User account is inactive."})
+
+        user.set_password(new_password)
+        user.save(update_fields=["password", "updated_at"])
+
+        now = timezone.now()
+        reset_token.is_used = True
+        reset_token.used_at = now
+        reset_token.save(update_fields=["is_used", "used_at", "updated_at"])
+
+        revoked_count = AuthSession.objects.filter(
+            user=user,
+            is_revoked=False,
+        ).update(
+            is_revoked=True,
+            revoked_at=now,
+            revoked_reason="PASSWORD_RESET",
+        )
+
+        AuditEvent.objects.create(
+            actor_user=user,
+            event_type="AUTH_PASSWORD_RESET_SUCCESS",
+            target_model="accounts.User",
+            target_id=str(user.id),
+            ip_address=ip_addr,
+            metadata={"revoked_sessions_count": revoked_count},
+        )
+
+        return Response(
+            {
+                "detail": "Password has been successfully reset. Please log in with your new password.",
+                "sessions_revoked": revoked_count,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class StaffInvitationAcceptAPIView(APIView):
+    permission_classes = [AllowAny]
+    throttle_scope = "auth_login"
+
+    @transaction.atomic
+    def post(self, request: Request) -> Response:
+        serializer = StaffInvitationAcceptSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        raw_token = serializer.validated_data["token"]
+        password = serializer.validated_data["password"]
+        full_name = serializer.validated_data.get("full_name", "").strip()
+        phone = serializer.validated_data.get("phone", "").strip()
+        preferred_language = serializer.validated_data.get("preferred_language", "km")
+
+        token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+        ip_addr = _get_client_ip(request)
+
+        invitation = (
+            StaffInvitation.objects.select_for_update()
+            .select_related("tenant")
+            .filter(token_hash=token_hash, is_revoked=False, accepted_at__isnull=True)
+            .first()
+        )
+
+        if invitation is None or invitation.expires_at <= timezone.now():
+            AuditEvent.objects.create(
+                event_type="TENANT_INVITATION_ACCEPT_FAILED_INVALID_TOKEN",
+                target_model="tenants.StaffInvitation",
+                ip_address=ip_addr,
+            )
+            raise ValidationError({"token": "Invalid or expired invitation token."})
+
+        email = invitation.email.lower().strip()
+        user = User.objects.filter(email=email).first()
+
+        if user is not None:
+            if not user.is_active:
+                raise ValidationError({"detail": "User account is inactive."})
+            user_update_fields = ["password", "updated_at"]
+            user.set_password(password)
+            if full_name:
+                user.full_name = full_name
+                user_update_fields.append("full_name")
+            if phone:
+                user.phone = phone
+                user_update_fields.append("phone")
+            if preferred_language:
+                user.preferred_language = preferred_language
+                user_update_fields.append("preferred_language")
+            user.save(update_fields=user_update_fields)
+        else:
+            user = User.objects.create_user(
+                email=email,
+                password=password,
+                full_name=full_name or email.split("@")[0],
+                phone=phone,
+                preferred_language=preferred_language,
+            )
+
+        membership, _ = TenantMembership.objects.get_or_create(
+            tenant=invitation.tenant,
+            user=user,
+            defaults={"role": invitation.role, "is_active": True},
+        )
+        if not membership.is_active or membership.role != invitation.role:
+            membership.role = invitation.role
+            membership.is_active = True
+            membership.save(update_fields=["role", "is_active", "updated_at"])
+
+        now = timezone.now()
+        invitation.accepted_at = now
+        invitation.save(update_fields=["accepted_at", "updated_at"])
+
+        tokens = create_session_and_issue_tokens(
+            user=user,
+            ip_address=ip_addr,
+            user_agent=request.META.get("HTTP_USER_AGENT", ""),
+        )
+
+        AuditEvent.objects.create(
+            actor_user=user,
+            tenant=invitation.tenant,
+            event_type="TENANT_INVITATION_ACCEPTED",
+            target_model="tenants.StaffInvitation",
+            target_id=str(invitation.id),
+            ip_address=ip_addr,
+            metadata={
+                "tenant_id": str(invitation.tenant.id),
+                "user_id": str(user.id),
+                "role": invitation.role,
+            },
+        )
+
+        return Response(
+            {
+                "tokens": tokens,
+                "user": {
+                    "id": str(user.id),
+                    "email": user.email,
+                    "full_name": user.full_name,
+                    "phone": user.phone,
+                    "platform_role": user.platform_role,
+                    "preferred_language": user.preferred_language,
+                    "memberships": _serialize_user_memberships(user),
+                },
+            },
             status=status.HTTP_200_OK,
         )

@@ -1,6 +1,6 @@
-from decimal import Decimal
+﻿from decimal import Decimal
 from rest_framework import serializers
-from apps.tenants.models import Tenant
+from apps.tenants.models import StaffInvitation, Tenant, TenantRole
 
 
 class TenantSettingsSerializer(serializers.ModelSerializer):
@@ -64,3 +64,28 @@ class TenantSettingsUpdateSerializer(serializers.Serializer):
             attrs["tax_rate_percent"] = Decimal("0.00")
         return attrs
 
+
+class StaffInvitationSerializer(serializers.ModelSerializer):
+    invited_by_email = serializers.EmailField(source="invited_by.email", read_only=True)
+
+    class Meta:
+        model = StaffInvitation
+        fields = [
+            "id",
+            "email",
+            "role",
+            "invited_by_email",
+            "expires_at",
+            "accepted_at",
+            "is_revoked",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+
+class StaffInvitationCreateSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    role = serializers.ChoiceField(choices=TenantRole.choices, default=TenantRole.SALES_STAFF)
+
+    def validate_email(self, value: str) -> str:
+        return value.lower().strip()

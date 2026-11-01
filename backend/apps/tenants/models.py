@@ -1,4 +1,4 @@
-from decimal import Decimal
+﻿from decimal import Decimal
 from django.conf import settings
 from django.db import models
 from apps.core.models import TimeStampedUUIDModel
@@ -106,3 +106,40 @@ class TenantMembership(TimeStampedUUIDModel):
 
     def __str__(self) -> str:
         return f"{self.user.email} -> {self.tenant.slug} [{self.role}]"
+
+
+class StaffInvitation(TimeStampedUUIDModel):
+    tenant = models.ForeignKey(
+        Tenant,
+        on_delete=models.CASCADE,
+        related_name="staff_invitations",
+    )
+    email = models.EmailField(max_length=255, db_index=True)
+    role = models.CharField(
+        max_length=32,
+        choices=TenantRole.choices,
+        default=TenantRole.SALES_STAFF,
+    )
+    invited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="sent_staff_invitations",
+    )
+    token_hash = models.CharField(max_length=64, db_index=True)
+    expires_at = models.DateTimeField(db_index=True)
+    accepted_at = models.DateTimeField(null=True, blank=True)
+    is_revoked = models.BooleanField(default=False, db_index=True)
+
+    class Meta:
+        db_table = "tenants_staffinvitation"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["token_hash", "is_revoked", "expires_at"]),
+            models.Index(fields=["tenant", "email"]),
+        ]
+
+    def __str__(self) -> str:
+        status = "REVOKED" if self.is_revoked else ("ACCEPTED" if self.accepted_at else "PENDING")
+        return f"Invitation for {self.email} to {self.tenant.slug} ({self.role}) [{status}]"

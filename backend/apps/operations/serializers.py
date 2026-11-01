@@ -1,4 +1,4 @@
-from decimal import Decimal
+﻿from decimal import Decimal
 from rest_framework import serializers
 from apps.operations.models import (
     Customer,
@@ -43,6 +43,12 @@ class InventoryMovementCreateSerializer(serializers.Serializer):
     transaction_type = serializers.ChoiceField(choices=InventoryTransactionType.choices)
     quantity_delta = serializers.DecimalField(max_digits=12, decimal_places=3)
     reference_note = serializers.CharField(max_length=255, required=False, allow_blank=True, default="")
+
+    def validate_quantity_delta(self, value: Decimal) -> Decimal:
+        if value == Decimal("0.000") or value == Decimal("0"):
+            raise serializers.ValidationError("Quantity delta cannot be zero.")
+        return value
+
 
 
 class InventoryTransactionSerializer(serializers.ModelSerializer):
@@ -128,6 +134,32 @@ class QuotationCreateSerializer(serializers.Serializer):
         max_digits=12, decimal_places=2, min_value=Decimal("0.00"), default=Decimal("0.00")
     )
     items = QuotationItemCreateSerializer(many=True, required=False, default=list)
+
+    def validate(self, attrs: dict) -> dict:
+        items = attrs.get("items", [])
+        discount = attrs.get("discount_usd", Decimal("0.00"))
+        if items:
+            subtotal = sum(
+                (
+                    item.get("setup_fee_usd", Decimal("0.00"))
+                    + (Decimal(item["quantity"]) * item.get("unit_price_usd", Decimal("0.0000")))
+                    + item.get("finishing_fee_usd", Decimal("0.00"))
+                )
+                for item in items
+            )
+        else:
+            qty = attrs.get("quantity", 1)
+            setup = attrs.get("setup_fee_usd", Decimal("0.00"))
+            unit_price = attrs.get("unit_price_usd", Decimal("0.0000"))
+            finishing = attrs.get("finishing_fee_usd", Decimal("0.00"))
+            subtotal = setup + (Decimal(qty) * unit_price) + finishing
+
+        if discount > subtotal:
+            raise serializers.ValidationError(
+                {"discount_usd": "Discount cannot exceed quotation subtotal."}
+            )
+        return attrs
+
 
 
 class QuotationSerializer(serializers.ModelSerializer):
