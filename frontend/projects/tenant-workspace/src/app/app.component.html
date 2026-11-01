@@ -39,17 +39,19 @@
     </button>
   </aside>
 
-  <!-- Top Workspace Header -->
-  <header class="bg-emerald-900 text-white px-6 py-3.5 shadow-sm flex items-center justify-between">
+  <!-- Top Workspace Header (Modern Clean Light Frosted Bar) -->
+  <header class="bg-white/85 backdrop-blur-md text-[#20242c] border-b border-[#e7ebef] px-6 py-3.5 shadow-xs sticky top-0 z-30 flex items-center justify-between transition-colors">
     <div class="flex items-center space-x-3">
-      <div class="w-9 h-9 rounded-lg bg-emerald-500 flex items-center justify-center font-bold text-slate-950">
-        TW
+      <div class="brand-mark" aria-hidden="true" title="PBMS CMYK Color Core">
+        <span>C</span><span>M</span><span>Y</span><span>K</span>
       </div>
       <div>
-        <span class="font-bold text-base">PBMS Printing Workspace</span>
-        <span class="hidden md:inline-block ml-2 text-xs px-2 py-0.5 rounded bg-emerald-800 text-emerald-200">
-          {{ i18n.t('ប្រព័ន្ធប្រតិបត្តិការរោងពុម្ព (Frontend B - Port 4202)', 'Tenant Staff Workspace (Frontend B - Port 4202)') }}
-        </span>
+        <div class="flex items-center space-x-2">
+          <span class="font-bold text-base text-[#20242c] tracking-tight">PBMS Printing Workspace</span>
+          <span class="hidden md:inline-block text-[11px] px-2.5 py-0.5 rounded-full bg-[#e8f8fd] text-[#008dbc] border border-[#d3f1fb] font-semibold">
+            {{ i18n.t('ប្រព័ន្ធប្រតិបត្តិការរោងពុម្ព (Frontend B - Port 4202)', 'Tenant Staff Workspace (Frontend B - Port 4202)') }}
+          </span>
+        </div>
       </div>
     </div>
 
@@ -57,19 +59,20 @@
       <button
         type="button"
         (click)="i18n.toggleLanguage()"
-        class="px-3 py-1.5 rounded-lg bg-emerald-800 hover:bg-emerald-700 text-xs font-medium text-white"
+        class="px-3 py-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 text-xs font-semibold text-[#4d5662] transition cursor-pointer"
+        [title]="i18n.lang() === 'km' ? 'Switch to English' : 'ប្ដូរទៅភាសាខ្មែរ'"
       >
         {{ i18n.lang() === 'km' ? '🌐 English' : '🌐 ភាសាខ្មែរ' }}
       </button>
-      <span *ngIf="user()" class="text-xs text-emerald-100 hidden sm:inline">
+      <span *ngIf="user()" class="text-xs text-[#4d5662] hidden sm:inline font-medium">
         {{ activeTenantName() }} • {{ user()?.full_name }}
-        <span class="ml-1.5 px-2 py-0.5 rounded bg-emerald-800 font-mono text-emerald-200">{{ currentRole() }}</span>
+        <span class="ml-1.5 px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 font-mono text-slate-700 font-semibold">{{ currentRole() }}</span>
       </span>
       <button
         *ngIf="user()"
         type="button"
         (click)="logout()"
-        class="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white"
+        class="px-3.5 py-1.5 rounded-lg bg-[#20242c] hover:bg-slate-800 active:scale-[0.99] text-xs font-semibold text-white transition shadow-xs cursor-pointer"
       >
         {{ i18n.t('ចាកចេញ', 'Logout') }}
       </button>
@@ -469,13 +472,13 @@
       </button>
     </div>
 
-    <!-- Module Navigation Tabs (Filtered by Role Permissions) -->
-    <div class="flex flex-wrap gap-2 bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
+    <!-- Module Navigation Tabs (Filtered by Role Permissions - Restrained Light Modern Tabs) -->
+    <div class="flex flex-wrap items-center gap-1.5 bg-white p-2 rounded-2xl border border-[#e7ebef] shadow-xs">
       <button
         *ngIf="canAccessTab('DASHBOARD')"
         type="button"
         (click)="activeTab = 'DASHBOARD'"
-        [class]="activeTab === 'DASHBOARD' ? 'px-4 py-2 rounded-lg bg-emerald-700 text-white text-xs font-semibold' : 'px-4 py-2 rounded-lg text-slate-700 hover:bg-slate-100 text-xs font-medium'"
+        [class]="activeTab === 'DASHBOARD' ? 'px-3.5 py-2 rounded-xl bg-[#e8f8fd] text-[#008dbc] border border-[#d3f1fb] text-xs font-bold shadow-2xs' : 'px-3.5 py-2 rounded-xl text-[#4d5662] hover:bg-slate-50 hover:text-[#20242c] text-xs font-medium transition cursor-pointer'"
       >
         1. {{ i18n.t('ផ្ទាំងសង្ខេប & អតិថិជន', 'Dashboard & Customers') }}
       </button>
@@ -483,7 +486,7 @@
         *ngIf="canAccessTab('QUOTATIONS')"
         type="button"
         (click)="activeTab = 'QUOTATIONS'"
-        [class]="activeTab === 'QUOTATIONS' ? 'px-4 py-2 rounded-lg bg-emerald-700 text-white text-xs font-semibold' : 'px-4 py-2 rounded-lg text-slate-700 hover:bg-slate-100 text-xs font-medium'"
+        [class]="activeTab === 'QUOTATIONS' ? 'px-3.5 py-2 rounded-xl bg-[#e8f8fd] text-[#008dbc] border border-[#d3f1fb] text-xs font-bold shadow-2xs' : 'px-3.5 py-2 rounded-xl text-[#4d5662] hover:bg-slate-50 hover:text-[#20242c] text-xs font-medium transition cursor-pointer'"
       >
         2. {{ i18n.t('គណនាតម្លៃ & សម្រង់តម្លៃ (Quotations)', 'Quotations & Pricing') }}
       </button>
@@ -491,7 +494,7 @@
         *ngIf="canAccessTab('PRODUCTION')"
         type="button"
         (click)="activeTab = 'PRODUCTION'"
-        [class]="activeTab === 'PRODUCTION' ? 'px-4 py-2 rounded-lg bg-emerald-700 text-white text-xs font-semibold' : 'px-4 py-2 rounded-lg text-slate-700 hover:bg-slate-100 text-xs font-medium'"
+        [class]="activeTab === 'PRODUCTION' ? 'px-3.5 py-2 rounded-xl bg-[#e8f8fd] text-[#008dbc] border border-[#d3f1fb] text-xs font-bold shadow-2xs' : 'px-3.5 py-2 rounded-xl text-[#4d5662] hover:bg-slate-50 hover:text-[#20242c] text-xs font-medium transition cursor-pointer'"
       >
         3. {{ i18n.t('ការបញ្ជាទិញ & ផលិតកម្ម (Orders & Jobs)', 'Sales Orders & Production') }}
       </button>
@@ -499,7 +502,7 @@
         *ngIf="canAccessTab('INVENTORY')"
         type="button"
         (click)="activeTab = 'INVENTORY'"
-        [class]="activeTab === 'INVENTORY' ? 'px-4 py-2 rounded-lg bg-emerald-700 text-white text-xs font-semibold' : 'px-4 py-2 rounded-lg text-slate-700 hover:bg-slate-100 text-xs font-medium'"
+        [class]="activeTab === 'INVENTORY' ? 'px-3.5 py-2 rounded-xl bg-[#e8f8fd] text-[#008dbc] border border-[#d3f1fb] text-xs font-bold shadow-2xs' : 'px-3.5 py-2 rounded-xl text-[#4d5662] hover:bg-slate-50 hover:text-[#20242c] text-xs font-medium transition cursor-pointer'"
       >
         4. {{ i18n.t('ស្តុកក្រដាស & វត្ថុធាតុដើម (Stock Ledger)', 'Material Stock Ledger') }}
       </button>
@@ -507,7 +510,7 @@
         *ngIf="canAccessTab('INVOICES')"
         type="button"
         (click)="activeTab = 'INVOICES'"
-        [class]="activeTab === 'INVOICES' ? 'px-4 py-2 rounded-lg bg-emerald-700 text-white text-xs font-semibold' : 'px-4 py-2 rounded-lg text-slate-700 hover:bg-slate-100 text-xs font-medium'"
+        [class]="activeTab === 'INVOICES' ? 'px-3.5 py-2 rounded-xl bg-[#e8f8fd] text-[#008dbc] border border-[#d3f1fb] text-xs font-bold shadow-2xs' : 'px-3.5 py-2 rounded-xl text-[#4d5662] hover:bg-slate-50 hover:text-[#20242c] text-xs font-medium transition cursor-pointer'"
       >
         5. {{ i18n.t('វិក្កយបត្រ & ការបង់ប្រាក់ (Invoices)', 'Invoices & Payments') }}
       </button>
@@ -515,7 +518,7 @@
         *ngIf="canAccessTab('MEMBERSHIPS')"
         type="button"
         (click)="activeTab = 'MEMBERSHIPS'"
-        [class]="activeTab === 'MEMBERSHIPS' ? 'px-4 py-2 rounded-lg bg-emerald-700 text-white text-xs font-semibold' : 'px-4 py-2 rounded-lg text-slate-700 hover:bg-slate-100 text-xs font-medium'"
+        [class]="activeTab === 'MEMBERSHIPS' ? 'px-3.5 py-2 rounded-xl bg-[#e8f8fd] text-[#008dbc] border border-[#d3f1fb] text-xs font-bold shadow-2xs' : 'px-3.5 py-2 rounded-xl text-[#4d5662] hover:bg-slate-50 hover:text-[#20242c] text-xs font-medium transition cursor-pointer'"
       >
         6. {{ i18n.t('បុគ្គលិករោងពុម្ព (Staff & Seats)', 'Staff Memberships') }}
       </button>
@@ -523,7 +526,7 @@
         *ngIf="canAccessTab('SETTINGS')"
         type="button"
         (click)="activeTab = 'SETTINGS'"
-        [class]="activeTab === 'SETTINGS' ? 'px-4 py-2 rounded-lg bg-emerald-700 text-white text-xs font-semibold' : 'px-4 py-2 rounded-lg text-slate-700 hover:bg-slate-100 text-xs font-medium'"
+        [class]="activeTab === 'SETTINGS' ? 'px-3.5 py-2 rounded-xl bg-[#e8f8fd] text-[#008dbc] border border-[#d3f1fb] text-xs font-bold shadow-2xs' : 'px-3.5 py-2 rounded-xl text-[#4d5662] hover:bg-slate-50 hover:text-[#20242c] text-xs font-medium transition cursor-pointer'"
       >
         7. {{ i18n.t('ការកំណត់រោងពុម្ព', 'Tenant Settings') }}
       </button>
@@ -531,7 +534,7 @@
         *ngIf="canAccessTab('TOOLS')"
         type="button"
         (click)="activeTab = 'TOOLS'; calculateImposition()"
-        [class]="activeTab === 'TOOLS' ? 'px-4 py-2 rounded-lg bg-emerald-700 text-white text-xs font-semibold' : 'px-4 py-2 rounded-lg text-slate-700 hover:bg-slate-100 text-xs font-medium'"
+        [class]="activeTab === 'TOOLS' ? 'px-3.5 py-2 rounded-xl bg-[#e8f8fd] text-[#008dbc] border border-[#d3f1fb] text-xs font-bold shadow-2xs' : 'px-3.5 py-2 rounded-xl text-[#4d5662] hover:bg-slate-50 hover:text-[#20242c] text-xs font-medium transition cursor-pointer'"
       >
         8. {{ i18n.t('ម៉ាស៊ីនគណនាប្លង់កាត់ក្រដាស (Imposition)', 'Sheet Imposition & Cut') }}
       </button>
