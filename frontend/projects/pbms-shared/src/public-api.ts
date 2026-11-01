@@ -3,6 +3,7 @@ import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Observable, finalize, shareReplay, tap, throwError } from 'rxjs';
 
 export interface PbmsRuntimeConfig {
+  ENV?: 'development' | 'production' | 'test';
   API_BASE_URL?: string;
   TENANT_WORKSPACE_URL?: string;
   SUPER_ADMIN_URL?: string;
@@ -15,6 +16,59 @@ declare global {
   }
 }
 
+export class PbmsConfigurationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PbmsConfigurationError';
+  }
+}
+
+/**
+ * Validates and normalizes URL strings for runtime configuration.
+ * - Trims whitespace
+ * - Disallows dangerous protocol-relative URLs ('//evil.com')
+ * - Allows relative paths (e.g. '/api/v1') for same-origin proxying
+ * - Validates absolute URLs to strictly allow 'http:' or 'https:'
+ * - Removes trailing slashes for consistent endpoint concatenation
+ */
+export function validateUrl(val: unknown, fieldName: string): string | null {
+  if (val === undefined || val === null) {
+    return null;
+  }
+  if (typeof val !== 'string') {
+    throw new PbmsConfigurationError(`Configuration Error: "${fieldName}" must be a string.`);
+  }
+  const clean = val.trim();
+  if (clean === '') {
+    return null;
+  }
+  if (clean.startsWith('//')) {
+    throw new PbmsConfigurationError(
+      `Configuration Error: Protocol-relative URLs are not permitted for "${fieldName}".`
+    );
+  }
+  if (clean.startsWith('/')) {
+    return clean.replace(/\/+$/, '');
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(clean);
+  } catch {
+    throw new PbmsConfigurationError(
+      `Configuration Error: Invalid URL specified for "${fieldName}" ("${clean}").`
+    );
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new PbmsConfigurationError(
+      `Configuration Error: "${fieldName}" must use http or https protocol. Received: "${parsed.protocol}".`
+    );
+  }
+  return clean.replace(/\/+$/, '');
+}
+
+/**
+ * Access the global runtime configuration object if available.
+ */
 export function getPbmsRuntimeConfig(): PbmsRuntimeConfig {
   if (typeof window !== 'undefined' && window.__PBMS_CONFIG__) {
     return window.__PBMS_CONFIG__;
@@ -22,28 +76,84 @@ export function getPbmsRuntimeConfig(): PbmsRuntimeConfig {
   return {};
 }
 
+/**
+ * Detects whether the current runtime environment is considered production.
+ */
+export function isProductionEnvironment(): boolean {
+  const config = getPbmsRuntimeConfig();
+  if (config.ENV === 'production') {
+    return true;
+  }
+  if (config.ENV === 'development' || config.ENV === 'test') {
+    return false;
+  }
+  if (typeof window !== 'undefined' && window.location) {
+    const host = window.location.hostname;
+    if (host && host !== 'localhost' && host !== '127.0.0.1' && !host.endsWith('.local')) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Resolves the Backend API base URL.
+ * - In production: rejects silent localhost fallback if unconfigured.
+ * - In development / testing: defaults safely to 'http://localhost:8000/api/v1'.
+ */
 export function getApiBaseUrl(): string {
-  const custom = getPbmsRuntimeConfig().API_BASE_URL;
-  if (custom && typeof custom === 'string' && custom.trim() !== '') {
-    return custom.trim().replace(/\/+$/, '');
+  const raw = getPbmsRuntimeConfig().API_BASE_URL;
+  const validated = validateUrl(raw, 'API_BASE_URL');
+  if (validated) {
+    return validated;
+  }
+  if (isProductionEnvironment()) {
+    throw new PbmsConfigurationError(
+      'Missing required production configuration: "API_BASE_URL" is not configured. Please supply a valid API endpoint via runtime configuration.'
+    );
   }
   return 'http://localhost:8000/api/v1';
 }
 
 export type PbmsPortalType = 'TENANT_WORKSPACE' | 'SUPER_ADMIN' | 'PUBLIC_SITE';
 
+/**
+ * Resolves portal URLs for cross-application navigation.
+ * - In production: rejects silent localhost fallback if unconfigured.
+ * - In development: defaults safely to known dev server ports.
+ */
 export function getPortalUrl(portal: PbmsPortalType): string {
   const config = getPbmsRuntimeConfig();
+  let raw: unknown;
+  let devFallback = '/';
+
   switch (portal) {
     case 'TENANT_WORKSPACE':
-      return config.TENANT_WORKSPACE_URL || 'http://localhost:4202';
+      raw = config.TENANT_WORKSPACE_URL;
+      devFallback = 'http://localhost:4202';
+      break;
     case 'SUPER_ADMIN':
-      return config.SUPER_ADMIN_URL || 'http://localhost:4201';
+      raw = config.SUPER_ADMIN_URL;
+      devFallback = 'http://localhost:4201';
+      break;
     case 'PUBLIC_SITE':
-      return config.PUBLIC_SITE_URL || 'http://localhost:4200';
+      raw = config.PUBLIC_SITE_URL;
+      devFallback = 'http://localhost:4200';
+      break;
     default:
       return '/';
   }
+
+  const validated = validateUrl(raw, portal);
+  if (validated) {
+    return validated;
+  }
+  if (isProductionEnvironment()) {
+    throw new PbmsConfigurationError(
+      `Missing required production configuration: "${portal}" URL is not configured.`
+    );
+  }
+  return devFallback;
 }
 
 export const API_BASE_URL = getApiBaseUrl();
