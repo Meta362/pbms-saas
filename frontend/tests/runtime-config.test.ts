@@ -339,3 +339,135 @@ test('Release Artifact Contract: generateRuntimeConfig outputs compliant product
     fs.rmSync(tempDist, { recursive: true, force: true });
   }
 });
+
+// 18. Security Regression: Generator safely serializes and resists JS injection payloads
+test('Security Regression: Generator safely serializes payloads and prevents script injection', async () => {
+  const { createConfigContent } = await import('../scripts/generate-runtime-config.mjs');
+  const injectionPayload = "'; alert('xss'); window.__pwned = true; //";
+
+  // When passed via customValues
+  assert.throws(
+    () => createConfigContent({
+      ENV: 'production',
+      API_BASE_URL: injectionPayload
+    }),
+    (err: any) => err.message.includes('not a valid URL') || err.message.includes('generate-runtime-config')
+  );
+
+  // When passed unicode or quote characters in valid relative path
+  const trickyPath = '/api/v1/quotes"\'\\';
+  assert.throws(
+    () => createConfigContent({
+      ENV: 'production',
+      API_BASE_URL: trickyPath
+    }),
+    (err: any) => err.message.includes('contains invalid characters in relative path') || err.message.includes('not a valid URL')
+  );
+});
+
+// 19. Security Regression: Generator rejects non-production ENV values
+test('Security Regression: Generator rejects non-production ENV values', async () => {
+  const { createConfigContent } = await import('../scripts/generate-runtime-config.mjs');
+
+  assert.throws(
+    () => createConfigContent({ ENV: 'development' }),
+    (err: any) => err.message.includes("Release generator strictly requires ENV === 'production'")
+  );
+
+  assert.throws(
+    () => createConfigContent({ ENV: 'test' }),
+    (err: any) => err.message.includes("Release generator strictly requires ENV === 'production'")
+  );
+});
+
+// 20. Security Regression: Generator rejects loopback/localhost endpoints in production
+test('Security Regression: Generator rejects loopback and localhost endpoints', async () => {
+  const { createConfigContent } = await import('../scripts/generate-runtime-config.mjs');
+
+  assert.throws(
+    () => createConfigContent({
+      ENV: 'production',
+      API_BASE_URL: 'http://localhost:8000/api/v1'
+    }),
+    (err: any) => err.message.includes('must use \'https:\'') || err.message.includes('cannot point to loopback/localhost')
+  );
+
+  assert.throws(
+    () => createConfigContent({
+      ENV: 'production',
+      API_BASE_URL: 'https://127.0.0.1:8000/api/v1'
+    }),
+    (err: any) => err.message.includes('cannot point to loopback/localhost')
+  );
+});
+
+// 21. Security Regression: Validator and Generator reject protocol-relative URLs
+test('Security Regression: Validator rejects protocol-relative URLs', async () => {
+  const { validateRuntimeConfigFile } = await import('../scripts/validate-release-artifacts.mjs');
+  const tempDir = path.resolve('dist/temp-test-protocol-rel');
+  fs.mkdirSync(tempDir, { recursive: true });
+  const testFile = path.join(tempDir, 'pbms-runtime-config.js');
+
+  fs.writeFileSync(
+    testFile,
+    'window.__PBMS_CONFIG__ = {\n' +
+    '  ENV: "production",\n' +
+    '  API_BASE_URL: "//evil.com/api/v1",\n' +
+    '  TENANT_WORKSPACE_URL: "/app",\n' +
+    '  SUPER_ADMIN_URL: "/admin",\n' +
+    '  PUBLIC_SITE_URL: "/"\n' +
+    '};\n'
+  );
+
+  try {
+    const errors = validateRuntimeConfigFile(testFile, 'test-app');
+    assert.ok(errors.some((e: string) => e.includes('protocol-relative')));
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+// 22. Security Regression: Rejection of embedded user credentials in URLs
+test('Security Regression: URLs with embedded credentials are rejected and redacted', async () => {
+  const { validateProductionUrl } = await import('../scripts/generate-runtime-config.mjs');
+  const { validateRuntimeConfigFile } = await import('../scripts/validate-release-artifacts.mjs');
+
+  assert.throws(
+    () => validateProductionUrl('https://admin:supersecret@api.angkorprint.com/api/v1', 'API_BASE_URL'),
+    (err: any) => err.message.includes('must not contain user credentials')
+  );
+
+  const tempDir = path.resolve('dist/temp-test-cred');
+  fs.mkdirSync(tempDir, { recursive: true });
+  const testFile = path.join(tempDir, 'pbms-runtime-config.js');
+
+  fs.writeFileSync(
+    testFile,
+    'window.__PBMS_CONFIG__ = {\n' +
+    '  ENV: "production",\n' +
+    '  API_BASE_URL: "https://user:password123@api.angkorprint.com/api/v1",\n' +
+    '  TENANT_WORKSPACE_URL: "https://app.angkorprint.com",\n' +
+    '  SUPER_ADMIN_URL: "https://admin.angkorprint.com",\n' +
+    '  PUBLIC_SITE_URL: "https://angkorprint.com"\n' +
+    '};\n'
+  );
+
+  try {
+    const errors = validateRuntimeConfigFile(testFile, 'test-app');
+    assert.ok(errors.some((e: string) => e.includes('must not contain user credentials')));
+    // Confirm password123 is NOT leaked in any error message
+    assert.ok(!errors.some((e: string) => e.includes('password123')));
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+// 23. Atomic Write Regression: Path traversal protection
+test('Atomic Write Regression: Generator rejects path traversal outside project root', async () => {
+  const { writeRuntimeConfigToDist } = await import('../scripts/generate-runtime-config.mjs');
+
+  assert.throws(
+    () => writeRuntimeConfigToDist('../../../../../outside-root'),
+    (err: any) => err.message.includes('Path traversal detected')
+  );
+});

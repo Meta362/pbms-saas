@@ -115,3 +115,24 @@ jobs:
         run: |
           cd frontend
           npm run build:all
+
+      - name: Verify Raw Build Fails Release Contract (Negative Gate)
+        run: |
+          cd frontend
+          echo "Verifying that raw production builds fail validation when dev configs are present..."
+          if npm run validate:release; then
+            echo "CRITICAL ERROR: validate:release passed on raw build containing development config!"
+            exit 1
+          fi
+          echo "Verified: Raw production build failed closed as expected."
+
+      - name: Generate Production Runtime Config
+        run: |
+          cd frontend
+          # Generates safe, verified production configuration
+          npm run generate:release-config
+
+      - name: Validate Release Artifacts Contract (Positive Gate)
+        run: |
+          cd frontend
+          npm run validate:release
