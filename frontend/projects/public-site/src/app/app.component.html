@@ -23,18 +23,18 @@
           {{ i18n.lang() === 'km' ? '🌐 English' : '🌐 ភាសាខ្មែរ' }}
         </button>
         <a
-          href="http://localhost:4202"
+          [href]="tenantWorkspaceUrl"
           target="_blank"
           class="px-3.5 py-2 rounded-xl bg-slate-900 text-white text-sm font-medium hover:bg-slate-800"
         >
-          {{ i18n.t('ចូលប្រើប្រាស់ហាងបោះពុម្ព (4202)', 'Tenant Login (4202)') }}
+          {{ i18n.t('ចូលប្រើប្រាស់ហាងបោះពុម្ព', 'Tenant Login') }}
         </a>
         <a
-          href="http://localhost:4201"
+          [href]="superAdminUrl"
           target="_blank"
           class="hidden md:inline-block px-3 py-2 rounded-xl border border-[#d5dbe1] text-slate-700 text-xs font-medium hover:bg-slate-100"
         >
-          Super Admin (4201)
+          Super Admin
         </a>
       </div>
     </div>
@@ -154,7 +154,7 @@
           <div><strong>Payment ID:</strong> <code class="text-xs">{{ result.payment_id }}</code></div>
         </div>
         <p class="text-xs text-emerald-700 mt-4">
-          {{ i18n.t('ជំហានបន្ទាប់៖ សូមបើក Super Admin Portal (http://localhost:4201) ដើម្បីចុច Approve Payment នោះហាងរបស់អ្នកនឹងក្លាយជា ACTIVE ភ្លាម!', 'Next step: Open Super Admin Portal (http://localhost:4201) and click Approve Payment to activate this tenant workspace!') }}
+          {{ i18n.t('ជំហានបន្ទាប់៖ សូមបើក Super Admin Portal ដើម្បីចុច Approve Payment នោះហាងរបស់អ្នកនឹងក្លាយជា ACTIVE ភ្លាម!', 'Next step: Open Super Admin Portal and click Approve Payment to activate this tenant workspace!') }}
         </p>
       </div>
 

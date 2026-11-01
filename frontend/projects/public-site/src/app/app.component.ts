@@ -2,7 +2,7 @@ import { Component, OnInit, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
-import { API_BASE_URL, PbmsI18nService, PublicPlan } from '@pbms/shared';
+import { API_BASE_URL, PbmsI18nService, PublicPlan, getPortalUrl } from '@pbms/shared';
 
 interface RegistrationResult {
   idempotent_replay: boolean;
@@ -45,6 +45,14 @@ export class AppComponent implements OnInit {
   readonly submitError = signal<string>('');
   readonly registrationResult = signal<RegistrationResult | null>(null);
 
+  get tenantWorkspaceUrl(): string {
+    return getPortalUrl('TENANT_WORKSPACE');
+  }
+
+  get superAdminUrl(): string {
+    return getPortalUrl('SUPER_ADMIN');
+  }
+
   ngOnInit(): void {
     this.fetchPlans();
   }
@@ -58,7 +66,7 @@ export class AppComponent implements OnInit {
       },
       error: () => {
         this.planError.set(
-          'Cannot connect to Backend API (http://localhost:8000). Please ensure the Django server is running.'
+          `Cannot connect to Backend API (${API_BASE_URL}). Please ensure the Django server is running.`
         );
         this.loadingPlans.set(false);
       },

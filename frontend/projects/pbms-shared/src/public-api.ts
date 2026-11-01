@@ -2,7 +2,51 @@ import { Injectable, signal } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Observable, finalize, shareReplay, tap, throwError } from 'rxjs';
 
-export const API_BASE_URL = 'http://localhost:8000/api/v1';
+export interface PbmsRuntimeConfig {
+  API_BASE_URL?: string;
+  TENANT_WORKSPACE_URL?: string;
+  SUPER_ADMIN_URL?: string;
+  PUBLIC_SITE_URL?: string;
+}
+
+declare global {
+  interface Window {
+    __PBMS_CONFIG__?: PbmsRuntimeConfig;
+  }
+}
+
+export function getPbmsRuntimeConfig(): PbmsRuntimeConfig {
+  if (typeof window !== 'undefined' && window.__PBMS_CONFIG__) {
+    return window.__PBMS_CONFIG__;
+  }
+  return {};
+}
+
+export function getApiBaseUrl(): string {
+  const custom = getPbmsRuntimeConfig().API_BASE_URL;
+  if (custom && typeof custom === 'string' && custom.trim() !== '') {
+    return custom.trim().replace(/\/+$/, '');
+  }
+  return 'http://localhost:8000/api/v1';
+}
+
+export type PbmsPortalType = 'TENANT_WORKSPACE' | 'SUPER_ADMIN' | 'PUBLIC_SITE';
+
+export function getPortalUrl(portal: PbmsPortalType): string {
+  const config = getPbmsRuntimeConfig();
+  switch (portal) {
+    case 'TENANT_WORKSPACE':
+      return config.TENANT_WORKSPACE_URL || 'http://localhost:4202';
+    case 'SUPER_ADMIN':
+      return config.SUPER_ADMIN_URL || 'http://localhost:4201';
+    case 'PUBLIC_SITE':
+      return config.PUBLIC_SITE_URL || 'http://localhost:4200';
+    default:
+      return '/';
+  }
+}
+
+export const API_BASE_URL = getApiBaseUrl();
 
 export interface PublicPlan {
   id: string;

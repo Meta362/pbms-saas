@@ -2,7 +2,7 @@ import { Component, OnInit, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
-import { API_BASE_URL, PbmsI18nService, PbmsSessionClient, UserProfile, formatApiErrorMessage } from '@pbms/shared';
+import { API_BASE_URL, PbmsI18nService, PbmsSessionClient, UserProfile, formatApiErrorMessage, getPortalUrl } from '@pbms/shared';
 
 interface SuperAdminOverview {
   metrics: {
@@ -344,7 +344,8 @@ export class AppComponent implements OnInit {
           );
           const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(impData))));
           setTimeout(() => {
-            window.open(`http://localhost:4202/?impersonation=${encoded}`, '_blank');
+            const tenantUrl = getPortalUrl('TENANT_WORKSPACE');
+            window.open(`${tenantUrl}/?impersonation=${encoded}`, '_blank');
           }, 600);
         },
         error: (err) => {
