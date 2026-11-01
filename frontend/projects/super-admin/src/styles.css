@@ -2,8 +2,33 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  color-scheme: dark;
+
+  /* Surfaces & Backgrounds (Enterprise Dark Slate) */
+  --pbms-admin-bg: #0b0f17;
+  --pbms-admin-surface: #111827;
+  --pbms-admin-surface-card: rgba(17, 24, 39, 0.95);
+  --pbms-admin-surface-frosted: rgba(17, 24, 39, 0.85);
+
+  /* Lines & Dividers */
+  --pbms-admin-line: #1f2937;
+  --pbms-admin-line-subtle: rgba(31, 41, 55, 0.8);
+
+  /* Focus Ring */
+  --pbms-focus-ring: rgba(0, 174, 239, 0.4);
+
+  /* CMYK Brand Palette */
+  --pbms-cmyk-cyan: #00aeef;
+  --pbms-cmyk-magenta: #ec008c;
+  --pbms-cmyk-yellow: #ffd500;
+  --pbms-cmyk-key: #20242c;
+}
+
 body {
   font-family: 'Kantumruy Pro', 'Inter', system-ui, -apple-system, sans-serif;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
 }
 
 .font-bayon {
@@ -12,4 +37,35 @@ body {
 
 .font-kantumruy {
   font-family: 'Kantumruy Pro', 'Inter', sans-serif;
+}
+
+/* CMYK Brand Mark Badge */
+.brand-mark {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0, 174, 239, 0.25);
+  transform: rotate(-3deg);
+  flex-shrink: 0;
+}
+
+.brand-mark span {
+  flex: 1;
+  font-size: 0;
+}
+
+.brand-mark span:nth-child(1) { background: var(--pbms-cmyk-cyan); }
+.brand-mark span:nth-child(2) { background: var(--pbms-cmyk-magenta); }
+.brand-mark span:nth-child(3) { background: var(--pbms-cmyk-yellow); }
+.brand-mark span:nth-child(4) { background: var(--pbms-cmyk-key); }
+
+/* Focus ring accessibility */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid var(--pbms-focus-ring);
+  outline-offset: 2px;
 }

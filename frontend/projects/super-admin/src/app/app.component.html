@@ -396,7 +396,7 @@
                     type="button"
                     [disabled]="reconcilingPaymentId() === t.latest_payment.id"
                     (click)="reconcilePayment(t.latest_payment.id, 'APPROVE')"
-                    class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold"
+                    class="px-3.5 py-1.5 rounded-xl bg-[#0098d4] hover:bg-[#0084b8] disabled:opacity-50 text-white text-xs font-semibold shadow-xs transition cursor-pointer"
                   >
                     <span *ngIf="reconcilingPaymentId() !== t.latest_payment.id">✓ {{ i18n.t('អនុម័តការបង់ប្រាក់ (Approve)', 'Approve Payment') }}</span>
                     <span *ngIf="reconcilingPaymentId() === t.latest_payment.id">{{ i18n.t('កំពុងដំណើរការ...', 'Processing...') }}</span>
@@ -495,7 +495,7 @@
               [(ngModel)]="annTitle"
               placeholder="e.g. System Maintenance Notice"
               required
-              class="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-1.5 text-xs text-white"
+              class="w-full rounded-xl bg-slate-950/80 border border-slate-700 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 px-3 py-2 text-xs text-white placeholder-slate-500 outline-none transition"
             />
           </div>
           <div>
@@ -503,7 +503,7 @@
             <select
               name="annLevel"
               [(ngModel)]="annLevel"
-              class="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-1.5 text-xs text-white"
+              class="w-full rounded-xl bg-slate-950/80 border border-slate-700 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 px-3 py-2 text-xs text-white placeholder-slate-500 outline-none transition"
             >
               <option value="INFO">ℹ️ INFO (ពណ៌ខៀវ - General Notice)</option>
               <option value="WARNING">⚠️ WARNING (ពណ៌លឿងទុំ - Maintenance)</option>
@@ -514,7 +514,7 @@
             <button
               type="submit"
               [disabled]="isSubmittingAnn()"
-              class="w-full py-2 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold shadow"
+              class="w-full py-2.5 px-4 rounded-xl bg-[#0098d4] hover:bg-[#0084b8] disabled:opacity-50 text-white text-xs font-semibold shadow-xs transition cursor-pointer"
             >
               {{ isSubmittingAnn() ? i18n.t('កំពុងផ្សាយ...', 'Publishing...') : i18n.t('📢 ផ្សាយដំណឹង (Publish)', '📢 Publish Broadcast') }}
             </button>
@@ -529,7 +529,7 @@
               rows="2"
               placeholder="ឧ. ប្រព័ន្ធនឹងធ្វើបច្ចុប្បន្នភាពនៅម៉ោង ១២ យប់នេះ..."
               required
-              class="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-1.5 text-xs text-white"
+              class="w-full rounded-xl bg-slate-950/80 border border-slate-700 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 px-3 py-2 text-xs text-white placeholder-slate-500 outline-none transition"
             ></textarea>
           </div>
           <div>
@@ -539,7 +539,7 @@
               [(ngModel)]="annMessageEn"
               rows="2"
               placeholder="e.g. Maintenance scheduled at 12:00 AM tonight..."
-              class="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-1.5 text-xs text-white"
+              class="w-full rounded-xl bg-slate-950/80 border border-slate-700 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 px-3 py-2 text-xs text-white placeholder-slate-500 outline-none transition"
             ></textarea>
           </div>
         </div>
