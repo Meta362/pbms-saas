@@ -1,7 +1,69 @@
-﻿@tailwind base;
+@tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  color-scheme: light;
+
+  /* Surfaces & Backgrounds */
+  --pbms-bg: #f5f7f9;
+  --pbms-surface-card: #ffffff;
+  --pbms-surface-frosted: rgba(255, 255, 255, 0.72);
+  --pbms-surface-nav: rgba(255, 255, 255, 0.88);
+
+  /* Lines & Dividers */
+  --pbms-line: #e7ebef;
+  --pbms-line-subtle: rgba(225, 230, 235, 0.8);
+  --pbms-focus-ring: rgba(0, 174, 239, 0.32);
+
+  /* Typography Inks */
+  --pbms-ink: #20242c;
+  --pbms-ink-secondary: #4d5662;
+  --pbms-ink-muted: #7d8590;
+
+  /* CMYK Brand Palette */
+  --pbms-cmyk-cyan: #00aeef;
+  --pbms-cmyk-magenta: #ec008c;
+  --pbms-cmyk-yellow: #ffd500;
+  --pbms-cmyk-key: #20242c;
+}
+
 body {
-  font-family: 'Inter', 'Kantumruy Pro', system-ui, -apple-system, sans-serif;
+  font-family: 'Kantumruy Pro', 'Inter', system-ui, -apple-system, sans-serif;
+  background-color: var(--pbms-bg);
+  color: var(--pbms-ink);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* CMYK Brand Mark Badge */
+.brand-mark {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0, 174, 239, 0.22);
+  transform: rotate(-3deg);
+  flex-shrink: 0;
+}
+
+.brand-mark span {
+  flex: 1;
+  font-size: 0;
+}
+
+.brand-mark span:nth-child(1) { background: var(--pbms-cmyk-cyan); }
+.brand-mark span:nth-child(2) { background: var(--pbms-cmyk-magenta); }
+.brand-mark span:nth-child(3) { background: var(--pbms-cmyk-yellow); }
+.brand-mark span:nth-child(4) { background: var(--pbms-cmyk-key); }
+
+/* Focus ring accessibility */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+a:focus-visible {
+  outline: 3px solid var(--pbms-focus-ring);
+  outline-offset: 2px;
 }
