@@ -27,7 +27,7 @@ export class PbmsConfigurationError extends Error {
  * Validates and normalizes URL strings for runtime configuration.
  * - Trims whitespace
  * - Disallows dangerous protocol-relative URLs ('//evil.com')
- * - Allows relative paths (e.g. '/api/v1') for same-origin proxying
+ * - Allows relative paths (e.g. '/api/v1') for same-origin reverse proxies
  * - Validates absolute URLs to strictly allow 'http:' or 'https:'
  * - Removes trailing slashes for consistent endpoint concatenation
  */
@@ -48,6 +48,9 @@ export function validateUrl(val: unknown, fieldName: string): string | null {
     );
   }
   if (clean.startsWith('/')) {
+    if (clean === '/') {
+      return '/';
+    }
     return clean.replace(/\/+$/, '');
   }
   let parsed: URL;
@@ -77,52 +80,115 @@ export function getPbmsRuntimeConfig(): PbmsRuntimeConfig {
 }
 
 /**
+ * Tests whether a given hostname is an explicitly recognized local development host.
+ */
+export function isLocalDevelopmentHostname(host: string | null | undefined): boolean {
+  if (!host || typeof host !== 'string') {
+    return false;
+  }
+  const clean = host.toLowerCase().trim();
+  return (
+    clean === 'localhost' ||
+    clean === '127.0.0.1' ||
+    clean === '::1' ||
+    clean.endsWith('.local')
+  );
+}
+
+/**
+ * Checks whether a URL points to a local address (localhost, 127.0.0.1, ::1, or .local).
+ */
+export function isLocalhostUrl(urlStr: string): boolean {
+  if (!urlStr || typeof urlStr !== 'string') {
+    return false;
+  }
+  const clean = urlStr.trim().toLowerCase();
+  if (clean.startsWith('/')) {
+    return false; // Relative path on current origin is NOT localhost unless current host is localhost
+  }
+  try {
+    const parsed = new URL(clean);
+    return isLocalDevelopmentHostname(parsed.hostname);
+  } catch {
+    return clean.includes('localhost') || clean.includes('127.0.0.1');
+  }
+}
+
+/**
  * Detects whether the current runtime environment is considered production.
+ *
+ * FAIL-CLOSED INVARIANT:
+ * A non-local hostname (e.g. app.angkorprint.com, pbms-saas.vercel.app) is ALWAYS
+ * considered production and MUST enforce production safety, EVEN IF a stale or
+ * accidentally shipped config declares ENV: 'development'.
  */
 export function isProductionEnvironment(): boolean {
   const config = getPbmsRuntimeConfig();
+
+  // 1. Explicit production declaration always activates production mode
   if (config.ENV === 'production') {
     return true;
   }
-  if (config.ENV === 'development' || config.ENV === 'test') {
-    return false;
-  }
+
+  // 2. In browser environments, check the actual location hostname
   if (typeof window !== 'undefined' && window.location) {
     const host = window.location.hostname;
-    if (host && host !== 'localhost' && host !== '127.0.0.1' && !host.endsWith('.local')) {
+    if (host && !isLocalDevelopmentHostname(host)) {
+      // Non-local host: FAIL-CLOSED -> always production, ignores ENV: 'development'
       return true;
     }
   }
+
+  // 3. For local hostnames or non-browser test runners:
+  if (config.ENV === 'development' || config.ENV === 'test') {
+    return false;
+  }
+
+  // 4. In non-browser environments with no hostname (e.g. Node tests), default to non-production unless ENV=production
+  if (typeof window === 'undefined' || !window.location || !window.location.hostname) {
+    return false;
+  }
+
+  // Default to development on localhost
   return false;
 }
 
 /**
  * Resolves the Backend API base URL.
- * - In production: rejects silent localhost fallback if unconfigured.
- * - In development / testing: defaults safely to 'http://localhost:8000/api/v1'.
+ * - In production: rejects missing configuration AND rejects localhost URLs.
+ * - In development: defaults safely to 'http://localhost:8000/api/v1'.
  */
 export function getApiBaseUrl(): string {
+  const isProd = isProductionEnvironment();
   const raw = getPbmsRuntimeConfig().API_BASE_URL;
   const validated = validateUrl(raw, 'API_BASE_URL');
-  if (validated) {
+
+  if (isProd) {
+    if (!validated) {
+      throw new PbmsConfigurationError(
+        'Missing required production configuration: "API_BASE_URL" is not configured. Please supply a valid production API endpoint via runtime configuration.'
+      );
+    }
+    if (isLocalhostUrl(validated)) {
+      throw new PbmsConfigurationError(
+        'Invalid production configuration: "API_BASE_URL" cannot point to localhost in a production environment. Please supply a valid production API endpoint.'
+      );
+    }
     return validated;
   }
-  if (isProductionEnvironment()) {
-    throw new PbmsConfigurationError(
-      'Missing required production configuration: "API_BASE_URL" is not configured. Please supply a valid API endpoint via runtime configuration.'
-    );
-  }
-  return 'http://localhost:8000/api/v1';
+
+  return validated || 'http://localhost:8000/api/v1';
 }
 
 export type PbmsPortalType = 'TENANT_WORKSPACE' | 'SUPER_ADMIN' | 'PUBLIC_SITE';
 
 /**
  * Resolves portal URLs for cross-application navigation.
- * - In production: rejects silent localhost fallback if unconfigured.
+ * - In production: rejects missing configuration AND rejects localhost URLs.
  * - In development: defaults safely to known dev server ports.
  */
 export function getPortalUrl(portal: PbmsPortalType): string {
+  const isProd = isProductionEnvironment();
   const config = getPbmsRuntimeConfig();
   let raw: unknown;
   let devFallback = '/';
@@ -145,15 +211,22 @@ export function getPortalUrl(portal: PbmsPortalType): string {
   }
 
   const validated = validateUrl(raw, portal);
-  if (validated) {
+
+  if (isProd) {
+    if (!validated) {
+      throw new PbmsConfigurationError(
+        `Missing required production configuration: "${portal}" URL is not configured.`
+      );
+    }
+    if (isLocalhostUrl(validated)) {
+      throw new PbmsConfigurationError(
+        `Invalid production configuration: "${portal}" URL cannot point to localhost in a production environment.`
+      );
+    }
     return validated;
   }
-  if (isProductionEnvironment()) {
-    throw new PbmsConfigurationError(
-      `Missing required production configuration: "${portal}" URL is not configured.`
-    );
-  }
-  return devFallback;
+
+  return validated || devFallback;
 }
 
 export const API_BASE_URL = getApiBaseUrl();
