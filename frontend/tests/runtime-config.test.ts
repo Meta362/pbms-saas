@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert';
+import fs from 'node:fs';
+import path from 'node:path';
 import '@angular/compiler';
 import {
   validateUrl,
@@ -243,5 +245,97 @@ test('Production Safety: Accepts valid relative paths for reverse-proxied produc
     assert.strictEqual(getPortalUrl('PUBLIC_SITE'), '/');
   } finally {
     clearMockWindow();
+  }
+});
+
+// 15. Release Artifact Contract: Validator rejects artifacts containing development/localhost config
+test('Release Artifact Contract: validateRuntimeConfigFile rejects development environment and localhost addresses', async () => {
+  const { validateRuntimeConfigFile } = await import('../scripts/validate-release-artifacts.mjs');
+  const tempDir = path.resolve('dist/temp-test-dev');
+  fs.mkdirSync(tempDir, { recursive: true });
+  const devFile = path.join(tempDir, 'pbms-runtime-config.js');
+
+  fs.writeFileSync(
+    devFile,
+    'window.__PBMS_CONFIG__ = {\n' +
+    '  ENV: "development",\n' +
+    '  API_BASE_URL: "http://localhost:8000/api/v1",\n' +
+    '  TENANT_WORKSPACE_URL: "http://localhost:4202",\n' +
+    '  SUPER_ADMIN_URL: "http://localhost:4201",\n' +
+    '  PUBLIC_SITE_URL: "http://localhost:4200"\n' +
+    '};\n'
+  );
+
+  try {
+    const errors = validateRuntimeConfigFile(devFile, 'test-app');
+    assert.ok(errors.length > 0, 'Expected validation errors for dev config in production');
+    assert.ok(errors.some((e: string) => e.includes("ENV must be explicitly set to 'production'")));
+    assert.ok(errors.some((e: string) => e.includes('contains forbidden localhost/loopback address')));
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+// 16. Release Artifact Contract: Validator accepts valid production HTTPS and relative endpoints
+test('Release Artifact Contract: validateRuntimeConfigFile accepts valid production HTTPS or relative paths', async () => {
+  const { validateRuntimeConfigFile } = await import('../scripts/validate-release-artifacts.mjs');
+  const tempDir = path.resolve('dist/temp-test-prod');
+  fs.mkdirSync(tempDir, { recursive: true });
+  const prodFile = path.join(tempDir, 'pbms-runtime-config.js');
+
+  // Test HTTPS URLs
+  fs.writeFileSync(
+    prodFile,
+    'window.__PBMS_CONFIG__ = {\n' +
+    '  ENV: "production",\n' +
+    '  API_BASE_URL: "https://api.angkorprint.com/api/v1",\n' +
+    '  TENANT_WORKSPACE_URL: "https://app.angkorprint.com",\n' +
+    '  SUPER_ADMIN_URL: "https://admin.angkorprint.com",\n' +
+    '  PUBLIC_SITE_URL: "https://angkorprint.com"\n' +
+    '};\n'
+  );
+
+  try {
+    const errorsHttps = validateRuntimeConfigFile(prodFile, 'test-app');
+    assert.strictEqual(errorsHttps.length, 0, 'Expected 0 errors for valid HTTPS production config');
+
+    // Test relative paths for reverse-proxy deployment
+    fs.writeFileSync(
+      prodFile,
+      'window.__PBMS_CONFIG__ = {\n' +
+      '  ENV: "production",\n' +
+      '  API_BASE_URL: "/api/v1",\n' +
+      '  TENANT_WORKSPACE_URL: "/app",\n' +
+      '  SUPER_ADMIN_URL: "/admin",\n' +
+      '  PUBLIC_SITE_URL: "/"\n' +
+      '};\n'
+    );
+
+    const errorsRelative = validateRuntimeConfigFile(prodFile, 'test-app');
+    assert.strictEqual(errorsRelative.length, 0, 'Expected 0 errors for valid relative production config');
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+// 17. Release Artifact Contract: Generator writes valid production config
+test('Release Artifact Contract: generateRuntimeConfig outputs compliant production contract', async () => {
+  const { writeRuntimeConfigToDist } = await import('../scripts/generate-runtime-config.mjs');
+  const { validateDistArtifacts } = await import('../scripts/validate-release-artifacts.mjs');
+  const tempDist = path.resolve('dist/temp-dist-target');
+
+  try {
+    writeRuntimeConfigToDist(tempDist, {
+      ENV: 'production',
+      API_BASE_URL: 'https://api.angkorprint.com/api/v1',
+      TENANT_WORKSPACE_URL: 'https://app.angkorprint.com',
+      SUPER_ADMIN_URL: 'https://admin.angkorprint.com',
+      PUBLIC_SITE_URL: 'https://angkorprint.com'
+    });
+
+    const distErrors = validateDistArtifacts(tempDist);
+    assert.strictEqual(distErrors.length, 0, 'Generated distribution artifacts must pass validation');
+  } finally {
+    fs.rmSync(tempDist, { recursive: true, force: true });
   }
 });
