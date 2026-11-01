@@ -44,7 +44,7 @@ body {
   font-family: 'Kantumruy Pro', 'Inter', system-ui, -apple-system, sans-serif;
   background-color: var(--pbms-bg);
   color: var(--pbms-ink);
-  line-height: 1.55;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -77,4 +77,119 @@ select:focus-visible,
 textarea:focus-visible {
   outline: 3px solid var(--pbms-focus-ring);
   outline-offset: 2px;
+}
+
+/* Tenant Workspace Reusable Design System Utilities */
+@layer components {
+  /* Standard Elevated Card */
+  .pbms-card {
+    background-color: #ffffff;
+    border: 1px solid #e7ebef;
+    border-radius: 1rem; /* rounded-2xl */
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px -1px rgba(0, 0, 0, 0.02);
+    transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+  }
+
+  /* Standard Card Header */
+  .pbms-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 0.875rem;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid #f0f2f5;
+  }
+
+  /* Consistent Form Input Field */
+  .pbms-input {
+    width: 100%;
+    border-radius: 0.625rem;
+    border: 1px solid #d5dbe1;
+    background-color: #ffffff;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.75rem;
+    line-height: 1.25rem;
+    color: var(--pbms-ink);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .pbms-input:focus {
+    border-color: var(--pbms-cmyk-cyan);
+    box-shadow: 0 0 0 3px var(--pbms-focus-ring);
+    outline: none;
+  }
+  .pbms-input::placeholder {
+    color: var(--pbms-ink-muted);
+  }
+
+  /* Primary Action Button (Brand Cyan / Ink) */
+  .pbms-btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.625rem;
+    background-color: #0098d4;
+    color: #ffffff;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.5rem 1rem;
+    box-shadow: 0 1px 2px 0 rgba(0, 152, 212, 0.2);
+    transition: all 0.15s ease;
+    cursor: pointer;
+  }
+  .pbms-btn-primary:hover:not(:disabled) {
+    background-color: #0084b8;
+    box-shadow: 0 2px 4px 0 rgba(0, 152, 212, 0.3);
+  }
+  .pbms-btn-primary:active:not(:disabled) {
+    transform: scale(0.99);
+  }
+  .pbms-btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* Secondary Neutral Button */
+  .pbms-btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.625rem;
+    background-color: #f8fafc;
+    border: 1px solid #e2e8f0;
+    color: var(--pbms-ink-secondary);
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.4rem 0.875rem;
+    transition: all 0.15s ease;
+    cursor: pointer;
+  }
+  .pbms-btn-secondary:hover:not(:disabled) {
+    background-color: #f1f5f9;
+    color: var(--pbms-ink);
+    border-color: #cbd5e1;
+  }
+  .pbms-btn-secondary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* Clean Data Table Header */
+  .pbms-table-head th {
+    background-color: #f8fafc;
+    color: var(--pbms-ink-muted);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 0.625rem 0.875rem;
+    border-bottom: 1px solid #e7ebef;
+  }
+
+  /* Clean Data Table Cell */
+  .pbms-table-cell {
+    padding: 0.75rem 0.875rem;
+    font-size: 0.75rem;
+    border-bottom: 1px solid #f1f4f7;
+    color: var(--pbms-ink);
+  }
 }

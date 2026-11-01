@@ -1,4 +1,4 @@
-<div class="min-h-screen flex flex-col bg-slate-100">
+<div class="min-h-screen flex flex-col bg-[#f5f7f9]">
   <!-- SuperAdmin Impersonation Support Mode Banner -->
   <aside *ngIf="impersonationSession() as imp" class="bg-amber-500 text-slate-950 px-6 py-2.5 flex items-center justify-between text-xs font-bold shadow-md z-50">
     <div class="flex items-center space-x-2">
@@ -318,7 +318,7 @@
               <button
                 type="button"
                 (click)="copyKhqrPayload()"
-                class="py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold border border-slate-300 transition-all flex items-center justify-center space-x-1"
+                class="py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold border border-[#d5dbe1] transition-all flex items-center justify-center space-x-1"
               >
                 <span *ngIf="!khqrCopied()">📋 {{ i18n.t('ចម្លងទិន្នន័យ', 'Copy Data') }}</span>
                 <span *ngIf="khqrCopied()" class="text-emerald-700 font-bold">✓ {{ i18n.t('បានចម្លង!', 'Copied!') }}</span>
@@ -397,9 +397,9 @@
         </div>
 
         <!-- Line Item Table -->
-        <div class="border border-slate-300 rounded-lg overflow-hidden text-xs mb-6">
+        <div class="border border-[#d5dbe1] rounded-lg overflow-hidden text-xs mb-6">
           <table class="w-full text-left">
-            <thead class="bg-slate-100 border-b border-slate-300 font-bold text-slate-700">
+            <thead class="bg-slate-100 border-b border-[#d5dbe1] font-bold text-slate-700">
               <tr>
                 <th class="py-2.5 px-3">ល.រ (No.)</th>
                 <th class="py-2.5 px-3">បរិយាយមុខទំនិញ (Description)</th>
@@ -415,7 +415,7 @@
                 <td class="py-2.5 px-3 text-right font-mono text-slate-600">{{ selectedTaxInvoice()?.total_khr }} ៛</td>
               </tr>
             </tbody>
-            <tfoot class="bg-slate-50 border-t border-slate-300 font-semibold text-slate-800">
+            <tfoot class="bg-slate-50 border-t border-[#d5dbe1] font-semibold text-slate-800">
               <tr>
                 <td colspan="2" class="py-2 px-3 text-right">សរុប (Subtotal):</td>
                 <td class="py-2 px-3 text-right font-mono">${{ selectedTaxInvoice()?.total_usd }}</td>
@@ -426,7 +426,7 @@
                 <td class="py-2 px-3 text-right font-mono text-slate-600">${{ (+selectedTaxInvoice()?.total_usd * 0.1).toFixed(2) }}</td>
                 <td class="py-2 px-3 text-right font-mono text-slate-600">{{ Math.round(+selectedTaxInvoice()?.total_khr * 0.1).toLocaleString() }} ៛</td>
               </tr>
-              <tr class="text-sm font-bold bg-slate-100 text-slate-900 border-t border-slate-300">
+              <tr class="text-sm font-bold bg-slate-100 text-slate-900 border-t border-[#d5dbe1]">
                 <td colspan="2" class="py-2.5 px-3 text-right">សរុបរួម (Grand Total):</td>
                 <td class="py-2.5 px-3 text-right font-mono text-emerald-700">${{ selectedTaxInvoice()?.total_usd }}</td>
                 <td class="py-2.5 px-3 text-right font-mono text-emerald-700">{{ selectedTaxInvoice()?.total_khr }} ៛</td>
@@ -473,12 +473,12 @@
     </div>
 
     <!-- Module Navigation Tabs (Filtered by Role Permissions - Restrained Light Modern Tabs) -->
-    <div class="flex flex-wrap items-center gap-1.5 bg-white p-2 rounded-2xl border border-[#e7ebef] shadow-xs">
+    <div class="flex items-center gap-1.5 bg-white p-2 rounded-2xl border border-[#e7ebef] shadow-xs overflow-x-auto no-scrollbar" role="tablist">
       <button
         *ngIf="canAccessTab('DASHBOARD')"
         type="button"
         (click)="activeTab = 'DASHBOARD'"
-        [class]="activeTab === 'DASHBOARD' ? 'px-3.5 py-2 rounded-xl bg-[#e8f8fd] text-[#008dbc] border border-[#d3f1fb] text-xs font-bold shadow-2xs' : 'px-3.5 py-2 rounded-xl text-[#4d5662] hover:bg-slate-50 hover:text-[#20242c] text-xs font-medium transition cursor-pointer'"
+        [class]="activeTab === 'DASHBOARD' ? 'px-3.5 py-2 rounded-xl bg-[#e8f8fd] text-[#008dbc] border border-[#d3f1fb] text-xs font-bold shadow-2xs flex-shrink-0' : 'px-3.5 py-2 rounded-xl text-[#4d5662] hover:bg-slate-50 hover:text-[#20242c] text-xs font-medium transition cursor-pointer flex-shrink-0'"
       >
         1. {{ i18n.t('ផ្ទាំងសង្ខេប & អតិថិជន', 'Dashboard & Customers') }}
       </button>
@@ -486,7 +486,7 @@
         *ngIf="canAccessTab('QUOTATIONS')"
         type="button"
         (click)="activeTab = 'QUOTATIONS'"
-        [class]="activeTab === 'QUOTATIONS' ? 'px-3.5 py-2 rounded-xl bg-[#e8f8fd] text-[#008dbc] border border-[#d3f1fb] text-xs font-bold shadow-2xs' : 'px-3.5 py-2 rounded-xl text-[#4d5662] hover:bg-slate-50 hover:text-[#20242c] text-xs font-medium transition cursor-pointer'"
+        [class]="activeTab === 'QUOTATIONS' ? 'px-3.5 py-2 rounded-xl bg-[#e8f8fd] text-[#008dbc] border border-[#d3f1fb] text-xs font-bold shadow-2xs flex-shrink-0' : 'px-3.5 py-2 rounded-xl text-[#4d5662] hover:bg-slate-50 hover:text-[#20242c] text-xs font-medium transition cursor-pointer flex-shrink-0'"
       >
         2. {{ i18n.t('គណនាតម្លៃ & សម្រង់តម្លៃ (Quotations)', 'Quotations & Pricing') }}
       </button>
@@ -494,7 +494,7 @@
         *ngIf="canAccessTab('PRODUCTION')"
         type="button"
         (click)="activeTab = 'PRODUCTION'"
-        [class]="activeTab === 'PRODUCTION' ? 'px-3.5 py-2 rounded-xl bg-[#e8f8fd] text-[#008dbc] border border-[#d3f1fb] text-xs font-bold shadow-2xs' : 'px-3.5 py-2 rounded-xl text-[#4d5662] hover:bg-slate-50 hover:text-[#20242c] text-xs font-medium transition cursor-pointer'"
+        [class]="activeTab === 'PRODUCTION' ? 'px-3.5 py-2 rounded-xl bg-[#e8f8fd] text-[#008dbc] border border-[#d3f1fb] text-xs font-bold shadow-2xs flex-shrink-0' : 'px-3.5 py-2 rounded-xl text-[#4d5662] hover:bg-slate-50 hover:text-[#20242c] text-xs font-medium transition cursor-pointer flex-shrink-0'"
       >
         3. {{ i18n.t('ការបញ្ជាទិញ & ផលិតកម្ម (Orders & Jobs)', 'Sales Orders & Production') }}
       </button>
@@ -502,7 +502,7 @@
         *ngIf="canAccessTab('INVENTORY')"
         type="button"
         (click)="activeTab = 'INVENTORY'"
-        [class]="activeTab === 'INVENTORY' ? 'px-3.5 py-2 rounded-xl bg-[#e8f8fd] text-[#008dbc] border border-[#d3f1fb] text-xs font-bold shadow-2xs' : 'px-3.5 py-2 rounded-xl text-[#4d5662] hover:bg-slate-50 hover:text-[#20242c] text-xs font-medium transition cursor-pointer'"
+        [class]="activeTab === 'INVENTORY' ? 'px-3.5 py-2 rounded-xl bg-[#e8f8fd] text-[#008dbc] border border-[#d3f1fb] text-xs font-bold shadow-2xs flex-shrink-0' : 'px-3.5 py-2 rounded-xl text-[#4d5662] hover:bg-slate-50 hover:text-[#20242c] text-xs font-medium transition cursor-pointer flex-shrink-0'"
       >
         4. {{ i18n.t('ស្តុកក្រដាស & វត្ថុធាតុដើម (Stock Ledger)', 'Material Stock Ledger') }}
       </button>
@@ -510,7 +510,7 @@
         *ngIf="canAccessTab('INVOICES')"
         type="button"
         (click)="activeTab = 'INVOICES'"
-        [class]="activeTab === 'INVOICES' ? 'px-3.5 py-2 rounded-xl bg-[#e8f8fd] text-[#008dbc] border border-[#d3f1fb] text-xs font-bold shadow-2xs' : 'px-3.5 py-2 rounded-xl text-[#4d5662] hover:bg-slate-50 hover:text-[#20242c] text-xs font-medium transition cursor-pointer'"
+        [class]="activeTab === 'INVOICES' ? 'px-3.5 py-2 rounded-xl bg-[#e8f8fd] text-[#008dbc] border border-[#d3f1fb] text-xs font-bold shadow-2xs flex-shrink-0' : 'px-3.5 py-2 rounded-xl text-[#4d5662] hover:bg-slate-50 hover:text-[#20242c] text-xs font-medium transition cursor-pointer flex-shrink-0'"
       >
         5. {{ i18n.t('វិក្កយបត្រ & ការបង់ប្រាក់ (Invoices)', 'Invoices & Payments') }}
       </button>
@@ -518,7 +518,7 @@
         *ngIf="canAccessTab('MEMBERSHIPS')"
         type="button"
         (click)="activeTab = 'MEMBERSHIPS'"
-        [class]="activeTab === 'MEMBERSHIPS' ? 'px-3.5 py-2 rounded-xl bg-[#e8f8fd] text-[#008dbc] border border-[#d3f1fb] text-xs font-bold shadow-2xs' : 'px-3.5 py-2 rounded-xl text-[#4d5662] hover:bg-slate-50 hover:text-[#20242c] text-xs font-medium transition cursor-pointer'"
+        [class]="activeTab === 'MEMBERSHIPS' ? 'px-3.5 py-2 rounded-xl bg-[#e8f8fd] text-[#008dbc] border border-[#d3f1fb] text-xs font-bold shadow-2xs flex-shrink-0' : 'px-3.5 py-2 rounded-xl text-[#4d5662] hover:bg-slate-50 hover:text-[#20242c] text-xs font-medium transition cursor-pointer flex-shrink-0'"
       >
         6. {{ i18n.t('បុគ្គលិករោងពុម្ព (Staff & Seats)', 'Staff Memberships') }}
       </button>
@@ -526,7 +526,7 @@
         *ngIf="canAccessTab('SETTINGS')"
         type="button"
         (click)="activeTab = 'SETTINGS'"
-        [class]="activeTab === 'SETTINGS' ? 'px-3.5 py-2 rounded-xl bg-[#e8f8fd] text-[#008dbc] border border-[#d3f1fb] text-xs font-bold shadow-2xs' : 'px-3.5 py-2 rounded-xl text-[#4d5662] hover:bg-slate-50 hover:text-[#20242c] text-xs font-medium transition cursor-pointer'"
+        [class]="activeTab === 'SETTINGS' ? 'px-3.5 py-2 rounded-xl bg-[#e8f8fd] text-[#008dbc] border border-[#d3f1fb] text-xs font-bold shadow-2xs flex-shrink-0' : 'px-3.5 py-2 rounded-xl text-[#4d5662] hover:bg-slate-50 hover:text-[#20242c] text-xs font-medium transition cursor-pointer flex-shrink-0'"
       >
         7. {{ i18n.t('ការកំណត់រោងពុម្ព', 'Tenant Settings') }}
       </button>
@@ -534,7 +534,7 @@
         *ngIf="canAccessTab('TOOLS')"
         type="button"
         (click)="activeTab = 'TOOLS'; calculateImposition()"
-        [class]="activeTab === 'TOOLS' ? 'px-3.5 py-2 rounded-xl bg-[#e8f8fd] text-[#008dbc] border border-[#d3f1fb] text-xs font-bold shadow-2xs' : 'px-3.5 py-2 rounded-xl text-[#4d5662] hover:bg-slate-50 hover:text-[#20242c] text-xs font-medium transition cursor-pointer'"
+        [class]="activeTab === 'TOOLS' ? 'px-3.5 py-2 rounded-xl bg-[#e8f8fd] text-[#008dbc] border border-[#d3f1fb] text-xs font-bold shadow-2xs flex-shrink-0' : 'px-3.5 py-2 rounded-xl text-[#4d5662] hover:bg-slate-50 hover:text-[#20242c] text-xs font-medium transition cursor-pointer flex-shrink-0'"
       >
         8. {{ i18n.t('ម៉ាស៊ីនគណនាប្លង់កាត់ក្រដាស (Imposition)', 'Sheet Imposition & Cut') }}
       </button>
@@ -583,22 +583,22 @@
       </div>
 
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div *ngIf="canMutateQuotes()" class="bg-white p-6 rounded-xl border border-slate-200">
+        <div *ngIf="canMutateQuotes()" class="bg-white p-6 rounded-2xl border border-[#e7ebef] shadow-xs">
           <h3 class="font-bold text-sm text-slate-900 mb-4">
             {{ i18n.t('បន្ថែមអតិថិជនថ្មី (New Customer)', 'Add Customer') }}
           </h3>
           <form (ngSubmit)="createCustomer()" class="space-y-3">
-            <input type="text" name="custName" [(ngModel)]="custName" required placeholder="Customer Name *" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" />
-            <input type="text" name="custCompany" [(ngModel)]="custCompany" placeholder="Company Name" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" />
-            <input type="text" name="custPhone" [(ngModel)]="custPhone" required placeholder="Phone Number *" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" />
-            <button type="submit" [disabled]="submittingCustomer()" class="w-full py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white text-xs font-semibold">
+            <input type="text" name="custName" [(ngModel)]="custName" required placeholder="Customer Name *" class="w-full rounded-lg border border-[#d5dbe1] px-3 py-2 text-xs" />
+            <input type="text" name="custCompany" [(ngModel)]="custCompany" placeholder="Company Name" class="w-full rounded-lg border border-[#d5dbe1] px-3 py-2 text-xs" />
+            <input type="text" name="custPhone" [(ngModel)]="custPhone" required placeholder="Phone Number *" class="w-full rounded-lg border border-[#d5dbe1] px-3 py-2 text-xs" />
+            <button type="submit" [disabled]="submittingCustomer()" class="w-full py-2.5 rounded-xl bg-[#0098d4] hover:bg-[#0084b8] disabled:opacity-50 text-white text-xs font-semibold shadow-xs transition cursor-pointer">
               <span *ngIf="!submittingCustomer()">+ {{ i18n.t('រក្សាទុកអតិថិជន', 'Save Customer') }}</span>
               <span *ngIf="submittingCustomer()">{{ i18n.t('កំពុងរក្សាទុក...', 'Saving...') }}</span>
             </button>
           </form>
         </div>
 
-        <div [class]="canMutateQuotes() ? 'lg:col-span-7 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm' : 'lg:col-span-12 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm'">
+        <div [class]="canMutateQuotes() ? 'lg:col-span-7 bg-white p-6 rounded-2xl border border-[#e7ebef] shadow-xs' : 'lg:col-span-12 bg-white p-6 rounded-2xl border border-[#e7ebef] shadow-xs'">
           <h3 class="font-bold text-sm text-slate-900 mb-4">
             {{ i18n.t('បញ្ជីអតិថិជនរបស់រោងពុម្ព', 'Tenant Customers Directory') }} ({{ customers().length }})
           </h3>
@@ -610,7 +610,7 @@
               </div>
               <div class="font-mono text-slate-600">{{ c.phone }}</div>
             </div>
-            <div *ngIf="customers().length === 0" class="py-4 text-center text-slate-400">
+            <div *ngIf="customers().length === 0" class="py-8 text-center text-[#7d8590] text-xs border border-dashed border-[#e7ebef] rounded-xl bg-slate-50/50">
               {{ i18n.t('គ្មានទិន្នន័យអតិថិជននៅឡើយទេ។', 'No customers found.') }}
             </div>
           </div>
@@ -620,7 +620,7 @@
 
     <!-- TAB 2: MULTI-ITEM QUOTATIONS & PRICING (DOM-001) -->
     <div *ngIf="activeTab === 'QUOTATIONS'" class="grid grid-cols-1 lg:grid-cols-12 gap-6">
-      <div *ngIf="canMutateQuotes()" class="lg:col-span-5 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+      <div *ngIf="canMutateQuotes()" class="lg:col-span-5 bg-white p-6 rounded-2xl border border-[#e7ebef] shadow-xs space-y-4">
         <div class="flex items-center justify-between border-b pb-3">
           <div>
             <h3 class="font-bold text-sm text-slate-900">
@@ -638,13 +638,13 @@
         <form (ngSubmit)="createQuotation()" class="space-y-4 text-xs">
           <div>
             <label class="block font-semibold mb-1 text-slate-700">Customer *</label>
-            <select name="quoteCustomerId" [(ngModel)]="quoteCustomerId" required class="w-full rounded-lg border border-slate-300 px-3 py-2 bg-white">
+            <select name="quoteCustomerId" [(ngModel)]="quoteCustomerId" required class="w-full rounded-lg border border-[#d5dbe1] px-3 py-2 bg-white">
               <option *ngFor="let c of customers()" [value]="c.id">{{ c.name }} ({{ c.phone }})</option>
             </select>
           </div>
           <div>
             <label class="block font-semibold mb-1 text-slate-700">Package / Quotation Title *</label>
-            <input type="text" name="quoteTitle" [(ngModel)]="quoteTitle" required placeholder="e.g. Corporate Identity Print Package" class="w-full rounded-lg border border-slate-300 px-3 py-2 font-medium" />
+            <input type="text" name="quoteTitle" [(ngModel)]="quoteTitle" required placeholder="e.g. Corporate Identity Print Package" class="w-full rounded-lg border border-[#d5dbe1] px-3 py-2 font-medium" />
           </div>
 
           <!-- Dynamic Line Items Table -->
@@ -675,7 +675,7 @@
                     [name]="'itemTitle_' + i"
                     required
                     placeholder="Item title (e.g. 1,000 Business Cards)"
-                    class="flex-1 px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-semibold"
+                    class="flex-1 px-2.5 py-1.5 rounded-lg border border-[#d5dbe1] bg-white text-xs font-semibold"
                   />
                   <button
                     *ngIf="quoteItems.length > 1"
@@ -726,7 +726,7 @@
           <div class="pt-3 border-t border-slate-200 space-y-2">
             <div class="flex items-center justify-between">
               <label class="font-semibold text-slate-700">Special Discount (USD):</label>
-              <input type="text" name="quoteDiscount" [(ngModel)]="quoteDiscount" class="w-24 px-2 py-1 rounded border border-slate-300 text-right font-mono" placeholder="0.00" />
+              <input type="text" name="quoteDiscount" [(ngModel)]="quoteDiscount" class="w-24 px-2 py-1 rounded border border-[#d5dbe1] text-right font-mono" placeholder="0.00" />
             </div>
 
             <div class="p-3 rounded-xl bg-slate-100/80 space-y-1 text-slate-700">
@@ -745,14 +745,14 @@
             </div>
           </div>
 
-          <button type="submit" [disabled]="submittingQuote()" class="w-full py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-semibold text-xs shadow-sm transition">
+          <button type="submit" [disabled]="submittingQuote()" class="w-full py-2.5 rounded-xl bg-[#0098d4] hover:bg-[#0084b8] disabled:opacity-50 text-white font-semibold text-xs shadow-xs transition cursor-pointer">
             <span *ngIf="!submittingQuote()">{{ i18n.t('គណនាតម្លៃ និងរក្សាទុក Quotation', 'Commit Multi-Item Quotation') }}</span>
             <span *ngIf="submittingQuote()">{{ i18n.t('កំពុងរក្សាទុក...', 'Committing...') }}</span>
           </button>
         </form>
       </div>
 
-      <div [class]="canMutateQuotes() ? 'lg:col-span-7 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm' : 'lg:col-span-12 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm'">
+      <div [class]="canMutateQuotes() ? 'lg:col-span-7 bg-white p-6 rounded-2xl border border-[#e7ebef] shadow-xs' : 'lg:col-span-12 bg-white p-6 rounded-2xl border border-[#e7ebef] shadow-xs'">
         <h3 class="font-bold text-sm text-slate-900 mb-4">
           {{ i18n.t('បញ្ជីសម្រង់តម្លៃ (Quotations List)', 'Quotations') }}
         </h3>
@@ -791,7 +791,7 @@
               </span>
             </div>
           </div>
-          <div *ngIf="quotations().length === 0" class="p-8 text-center text-slate-400 text-xs">
+          <div *ngIf="quotations().length === 0" class="p-8 text-center text-[#7d8590] text-xs border border-dashed border-[#e7ebef] rounded-xl bg-slate-50/50">
             {{ i18n.t('គ្មានទិន្នន័យ Quotation នៅឡើយទេ។', 'No quotations found.') }}
           </div>
         </div>
@@ -928,23 +928,23 @@
 
     <!-- TAB 4: MATERIAL INVENTORY & IMMUTABLE LEDGER -->
     <div *ngIf="activeTab === 'INVENTORY'" class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <div *ngIf="canMutateStock()" class="bg-white p-6 rounded-xl border border-slate-200 space-y-6">
+      <div *ngIf="canMutateStock()" class="bg-white p-6 rounded-2xl border border-[#e7ebef] shadow-xs space-y-6">
         <div>
           <h3 class="font-bold text-sm text-slate-900 mb-3">
             {{ i18n.t('កត់ត្រាចលនាស្តុក (Stock Ledger Transaction)', 'Record Stock Movement') }}
           </h3>
           <form (ngSubmit)="recordStockMovement()" class="space-y-3 text-xs">
-            <select name="moveMaterialId" [(ngModel)]="moveMaterialId" required class="w-full rounded-lg border border-slate-300 px-3 py-2 bg-white">
+            <select name="moveMaterialId" [(ngModel)]="moveMaterialId" required class="w-full rounded-lg border border-[#d5dbe1] px-3 py-2 bg-white">
               <option *ngFor="let m of materials()" [value]="m.id">{{ m.sku }} - {{ m.name }} (Avail: {{ m.current_stock }})</option>
             </select>
-            <select name="moveType" [(ngModel)]="moveType" class="w-full rounded-lg border border-slate-300 px-3 py-2 bg-white">
+            <select name="moveType" [(ngModel)]="moveType" class="w-full rounded-lg border border-[#d5dbe1] px-3 py-2 bg-white">
               <option value="STOCK_IN">STOCK_IN (នាំចូលស្តុក)</option>
               <option value="CONSUMPTION">CONSUMPTION (ដកប្រើក្នុងផលិតកម្ម)</option>
               <option value="WASTE">WASTE (ខូចខាត)</option>
             </select>
-            <input type="text" name="moveQty" [(ngModel)]="moveQty" required placeholder="Quantity (e.g. 250.000)" class="w-full rounded-lg border border-slate-300 px-3 py-2" />
-            <input type="text" name="moveNote" [(ngModel)]="moveNote" placeholder="Reference / Job Note" class="w-full rounded-lg border border-slate-300 px-3 py-2" />
-            <button type="submit" [disabled]="submittingMovement()" class="w-full py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-semibold">
+            <input type="text" name="moveQty" [(ngModel)]="moveQty" required placeholder="Quantity (e.g. 250.000)" class="w-full rounded-lg border border-[#d5dbe1] px-3 py-2" />
+            <input type="text" name="moveNote" [(ngModel)]="moveNote" placeholder="Reference / Job Note" class="w-full rounded-lg border border-[#d5dbe1] px-3 py-2" />
+            <button type="submit" [disabled]="submittingMovement()" class="w-full py-2.5 rounded-xl bg-[#0098d4] hover:bg-[#0084b8] disabled:opacity-50 text-white font-semibold text-xs shadow-xs transition cursor-pointer">
               <span *ngIf="!submittingMovement()">{{ i18n.t('កត់ត្រាចូលក្នុង Stock Ledger', 'Commit Ledger Entry') }}</span>
               <span *ngIf="submittingMovement()">{{ i18n.t('កំពុងកត់ត្រា...', 'Committing...') }}</span>
             </button>
@@ -952,7 +952,7 @@
         </div>
       </div>
 
-      <div [class]="canMutateStock() ? 'lg:col-span-2 bg-white p-6 rounded-xl border border-slate-200' : 'lg:col-span-3 bg-white p-6 rounded-xl border border-slate-200'">
+      <div [class]="canMutateStock() ? 'lg:col-span-2 bg-white p-6 rounded-2xl border border-[#e7ebef] shadow-xs' : 'lg:col-span-3 bg-white p-6 rounded-2xl border border-[#e7ebef] shadow-xs'">
         <h3 class="font-bold text-sm text-slate-900 mb-3">
           {{ i18n.t('ស្តុកវត្ថុធាតុដើមបច្ចុប្បន្ន (Materials & Current Stock)', 'Material Inventory') }}
         </h3>
@@ -964,7 +964,7 @@
             </div>
             <div class="font-bold text-emerald-700 text-sm">{{ m.current_stock }} {{ m.unit }}</div>
           </div>
-          <div *ngIf="materials().length === 0" class="py-4 text-center text-slate-400">
+          <div *ngIf="materials().length === 0" class="py-8 text-center text-[#7d8590] text-xs border border-dashed border-[#e7ebef] rounded-xl bg-slate-50/50">
             {{ i18n.t('គ្មានទិន្នន័យស្តុកវត្ថុធាតុដើមនៅឡើយទេ។', 'No materials registered.') }}
           </div>
         </div>
@@ -972,7 +972,7 @@
     </div>
 
     <!-- TAB 5: CUSTOMER INVOICES & PAYMENT ALLOCATIONS -->
-    <div *ngIf="activeTab === 'INVOICES'" class="bg-white p-6 rounded-xl border border-slate-200">
+    <div *ngIf="activeTab === 'INVOICES'" class="bg-white p-6 rounded-2xl border border-[#e7ebef] shadow-xs">
       <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4 pb-3 border-b border-slate-200">
         <div>
           <h3 class="font-bold text-sm text-slate-900">
@@ -1025,7 +1025,7 @@
                 type="text"
                 [(ngModel)]="paymentAmounts[inv.id]"
                 placeholder="Amount USD"
-                class="w-24 rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs"
+                class="w-24 rounded-lg border border-[#d5dbe1] px-2.5 py-1.5 text-xs"
               />
               <button
                 type="button"
@@ -1039,7 +1039,7 @@
             </div>
           </div>
         </div>
-        <div *ngIf="invoices().length === 0" class="p-8 text-center text-slate-400 text-xs">
+        <div *ngIf="invoices().length === 0" class="p-8 text-center text-[#7d8590] text-xs border border-dashed border-[#e7ebef] rounded-xl bg-slate-50/50">
           {{ i18n.t('គ្មានវិក្កយបត្រនៅឡើយទេ។', 'No customer invoices found.') }}
         </div>
       </div>
@@ -1054,7 +1054,7 @@
 
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <!-- Add Staff Form -->
-        <div class="bg-white p-6 rounded-xl border border-slate-200">
+        <div class="bg-white p-6 rounded-2xl border border-[#e7ebef] shadow-xs">
           <h3 class="font-bold text-sm text-slate-900 mb-1">
             {{ i18n.t('បន្ថែមបុគ្គលិករោងពុម្ពថ្មី', 'Invite / Add Staff Member') }}
           </h3>
@@ -1065,30 +1065,30 @@
           <form (ngSubmit)="createStaffMember()" class="space-y-3 text-xs">
             <div>
               <label class="block font-semibold mb-1">Full Name *</label>
-              <input type="text" name="staffFullName" [(ngModel)]="staffFullName" required placeholder="e.g. Sokha Chan" class="w-full rounded-lg border border-slate-300 px-3 py-2" />
+              <input type="text" name="staffFullName" [(ngModel)]="staffFullName" required placeholder="e.g. Sokha Chan" class="w-full rounded-lg border border-[#d5dbe1] px-3 py-2" />
             </div>
             <div>
               <label class="block font-semibold mb-1">Email Address *</label>
-              <input type="email" name="staffEmail" [(ngModel)]="staffEmail" required placeholder="staff@printshop.com" class="w-full rounded-lg border border-slate-300 px-3 py-2" />
+              <input type="email" name="staffEmail" [(ngModel)]="staffEmail" required placeholder="staff@printshop.com" class="w-full rounded-lg border border-[#d5dbe1] px-3 py-2" />
             </div>
             <div>
               <label class="block font-semibold mb-1">Phone Number</label>
-              <input type="text" name="staffPhone" [(ngModel)]="staffPhone" placeholder="012 345 678" class="w-full rounded-lg border border-slate-300 px-3 py-2" />
+              <input type="text" name="staffPhone" [(ngModel)]="staffPhone" placeholder="012 345 678" class="w-full rounded-lg border border-[#d5dbe1] px-3 py-2" />
             </div>
             <div>
               <label class="block font-semibold mb-1">Assigned Role *</label>
-              <select name="staffRole" [(ngModel)]="staffRole" required class="w-full rounded-lg border border-slate-300 px-3 py-2 bg-white">
+              <select name="staffRole" [(ngModel)]="staffRole" required class="w-full rounded-lg border border-[#d5dbe1] px-3 py-2 bg-white">
                 <option *ngFor="let r of staffRoles" [value]="r">{{ r }}</option>
               </select>
             </div>
             <div>
               <label class="block font-semibold mb-1">Initial Password (min 10 chars) *</label>
-              <input type="password" name="staffPassword" [(ngModel)]="staffPassword" required placeholder="••••••••••" class="w-full rounded-lg border border-slate-300 px-3 py-2" />
+              <input type="password" name="staffPassword" [(ngModel)]="staffPassword" required placeholder="••••••••••" class="w-full rounded-lg border border-[#d5dbe1] px-3 py-2" />
             </div>
             <button
               type="submit"
               [disabled]="submittingStaff()"
-              class="w-full py-2.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-semibold"
+              class="w-full py-2.5 rounded-xl bg-[#0098d4] hover:bg-[#0084b8] disabled:opacity-50 text-white font-semibold text-xs shadow-xs transition cursor-pointer"
             >
               <span *ngIf="!submittingStaff()">+ {{ i18n.t('បង្កើតគណនីបុគ្គលិក', 'Add Staff Member') }}</span>
               <span *ngIf="submittingStaff()">{{ i18n.t('កំពុងរក្សាទុក...', 'Saving...') }}</span>
@@ -1097,7 +1097,7 @@
         </div>
 
         <!-- Staff Members Directory -->
-        <div class="lg:col-span-2 bg-white p-6 rounded-xl border border-slate-200">
+        <div class="lg:col-span-2 bg-white p-6 rounded-2xl border border-[#e7ebef] shadow-xs">
           <div class="flex items-center justify-between mb-4">
             <h3 class="font-bold text-sm text-slate-900">
               {{ i18n.t('បញ្ជីបុគ្គលិក និងសិទ្ធិប្រើប្រាស់', 'Staff Directory & Access Delegation') }} ({{ memberships().length }})
@@ -1113,7 +1113,7 @@
 
           <div class="overflow-x-auto">
             <table class="w-full text-left text-xs">
-              <thead class="bg-slate-50 uppercase text-slate-500 border-b border-slate-200">
+              <thead class="bg-slate-50/80 uppercase text-[#7d8590] border-b border-[#e7ebef] text-[11px] font-bold tracking-wider">
                 <tr>
                   <th class="py-2.5 px-3">Staff / Email</th>
                   <th class="py-2.5 px-3">Role Delegation</th>
@@ -1132,7 +1132,7 @@
                       [disabled]="updatingStaffId() === m.id"
                       [ngModel]="m.role"
                       (ngModelChange)="updateStaffRole(m.id, $event)"
-                      class="rounded border border-slate-300 px-2 py-1 text-xs bg-white disabled:opacity-50"
+                      class="rounded border border-[#d5dbe1] px-2 py-1 text-xs bg-white disabled:opacity-50"
                     >
                       <option *ngFor="let r of staffRoles" [value]="r">{{ r }}</option>
                     </select>
@@ -1163,7 +1163,7 @@
     </div>
 
     <!-- TAB 7: TENANT SETTINGS -->
-    <div *ngIf="activeTab === 'SETTINGS'" class="bg-white p-6 rounded-xl border border-slate-200 space-y-6">
+    <div *ngIf="activeTab === 'SETTINGS'" class="bg-white p-6 rounded-2xl border border-[#e7ebef] shadow-xs space-y-6">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
         <div>
           <h3 class="font-bold text-base text-slate-900">
@@ -1210,7 +1210,7 @@
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div
               (click)="canMutateSettings() && (settingsIsTaxRegistered = false)"
-              [class]="!settingsIsTaxRegistered ? 'p-3.5 rounded-xl border-2 border-emerald-600 bg-emerald-50/50 cursor-pointer shadow-sm' : 'p-3.5 rounded-xl border border-slate-200 hover:border-slate-300 cursor-pointer'"
+              [class]="!settingsIsTaxRegistered ? 'p-3.5 rounded-xl border-2 border-emerald-600 bg-emerald-50/50 cursor-pointer shadow-sm' : 'p-3.5 rounded-xl border border-slate-200 hover:border-[#d5dbe1] cursor-pointer'"
             >
               <div class="flex items-center justify-between mb-1">
                 <span class="text-xs font-bold text-slate-900">👨‍👩‍👧 {{ i18n.t('អាជីវកម្មគ្រួសារ (0% VAT)', 'Family Print Shop (0% VAT)') }}</span>
@@ -1223,7 +1223,7 @@
 
             <div
               (click)="canMutateSettings() && (settingsIsTaxRegistered = true)"
-              [class]="settingsIsTaxRegistered ? 'p-3.5 rounded-xl border-2 border-indigo-600 bg-indigo-50/50 cursor-pointer shadow-sm' : 'p-3.5 rounded-xl border border-slate-200 hover:border-slate-300 cursor-pointer'"
+              [class]="settingsIsTaxRegistered ? 'p-3.5 rounded-xl border-2 border-indigo-600 bg-indigo-50/50 cursor-pointer shadow-sm' : 'p-3.5 rounded-xl border border-slate-200 hover:border-[#d5dbe1] cursor-pointer'"
             >
               <div class="flex items-center justify-between mb-1">
                 <span class="text-xs font-bold text-slate-900">🏢 {{ i18n.t('ចុះបញ្ជីពន្ធដារ (GDT VAT)', 'VAT Registered Enterprise') }}</span>
@@ -1246,7 +1246,7 @@
             [(ngModel)]="settingsTaxIdNumber"
             [disabled]="!canMutateSettings() || submittingSettings()"
             placeholder="e.g. K002-902348123"
-            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-mono disabled:bg-slate-50 disabled:text-slate-500"
+            class="w-full rounded-lg border border-[#d5dbe1] px-3 py-2 text-xs font-mono disabled:bg-slate-50 disabled:text-slate-500"
           />
         </div>
 
@@ -1262,7 +1262,7 @@
               [disabled]="!canMutateSettings() || submittingSettings()"
               required
               placeholder="e.g. 4100.00"
-              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-mono disabled:bg-slate-50 disabled:text-slate-500"
+              class="w-full rounded-lg border border-[#d5dbe1] px-3 py-2 text-xs font-mono disabled:bg-slate-50 disabled:text-slate-500"
             />
             <div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-xs text-slate-400">
               ៛ KHR
@@ -1285,7 +1285,7 @@
               [disabled]="!canMutateSettings() || submittingSettings()"
               required
               placeholder="e.g. 10.00"
-              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-mono disabled:bg-slate-50 disabled:text-slate-500"
+              class="w-full rounded-lg border border-[#d5dbe1] px-3 py-2 text-xs font-mono disabled:bg-slate-50 disabled:text-slate-500"
             />
             <div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-xs text-slate-400">
               %
@@ -1308,7 +1308,7 @@
           <button
             type="submit"
             [disabled]="submittingSettings()"
-            class="px-5 py-2.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white text-xs font-semibold shadow-sm transition"
+            class="px-5 py-2.5 rounded-xl bg-[#0098d4] hover:bg-[#0084b8] disabled:opacity-50 text-white text-xs font-semibold shadow-xs transition cursor-pointer"
           >
             <span *ngIf="!submittingSettings()">{{ i18n.t('រក្សាទុកការកំណត់', 'Save Settings') }}</span>
             <span *ngIf="submittingSettings()">{{ i18n.t('កំពុងរក្សាទុក...', 'Saving...') }}</span>
@@ -1318,7 +1318,7 @@
     </div>
 
     <!-- TAB 8: SHEET IMPOSITION & CUT OPTIMIZER (PROD-001) -->
-    <div *ngIf="activeTab === 'TOOLS'" class="bg-white p-6 rounded-xl border border-slate-200 space-y-6">
+    <div *ngIf="activeTab === 'TOOLS'" class="bg-white p-6 rounded-2xl border border-[#e7ebef] shadow-xs space-y-6">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
         <div>
           <h3 class="font-bold text-base text-slate-900">
@@ -1353,7 +1353,7 @@
                   name="impParentW"
                   [(ngModel)]="impositionParentW"
                   (change)="calculateImposition()"
-                  class="w-full mt-1 px-3 py-2 border border-slate-300 rounded-lg text-xs font-semibold bg-white"
+                  class="w-full mt-1 px-3 py-2 border border-[#d5dbe1] rounded-lg text-xs font-semibold bg-white"
                   placeholder="e.g. 790"
                 />
               </div>
@@ -1364,7 +1364,7 @@
                   name="impParentH"
                   [(ngModel)]="impositionParentH"
                   (change)="calculateImposition()"
-                  class="w-full mt-1 px-3 py-2 border border-slate-300 rounded-lg text-xs font-semibold bg-white"
+                  class="w-full mt-1 px-3 py-2 border border-[#d5dbe1] rounded-lg text-xs font-semibold bg-white"
                   placeholder="e.g. 1090"
                 />
               </div>
@@ -1417,7 +1417,7 @@
                   name="impCutW"
                   [(ngModel)]="impositionCutW"
                   (change)="calculateImposition()"
-                  class="w-full mt-1 px-3 py-2 border border-slate-300 rounded-lg text-xs font-semibold bg-white"
+                  class="w-full mt-1 px-3 py-2 border border-[#d5dbe1] rounded-lg text-xs font-semibold bg-white"
                   placeholder="e.g. 210"
                 />
               </div>
@@ -1428,7 +1428,7 @@
                   name="impCutH"
                   [(ngModel)]="impositionCutH"
                   (change)="calculateImposition()"
-                  class="w-full mt-1 px-3 py-2 border border-slate-300 rounded-lg text-xs font-semibold bg-white"
+                  class="w-full mt-1 px-3 py-2 border border-[#d5dbe1] rounded-lg text-xs font-semibold bg-white"
                   placeholder="e.g. 297"
                 />
               </div>
@@ -1486,7 +1486,7 @@
                   name="impMargin"
                   [(ngModel)]="impositionMargin"
                   (change)="calculateImposition()"
-                  class="w-full mt-1 px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-semibold bg-white"
+                  class="w-full mt-1 px-2.5 py-1.5 border border-[#d5dbe1] rounded-lg text-xs font-semibold bg-white"
                 />
               </div>
               <div>
@@ -1496,7 +1496,7 @@
                   name="impGripper"
                   [(ngModel)]="impositionGripper"
                   (change)="calculateImposition()"
-                  class="w-full mt-1 px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-semibold bg-white"
+                  class="w-full mt-1 px-2.5 py-1.5 border border-[#d5dbe1] rounded-lg text-xs font-semibold bg-white"
                 />
               </div>
               <div>
@@ -1506,7 +1506,7 @@
                   name="impBleed"
                   [(ngModel)]="impositionBleed"
                   (change)="calculateImposition()"
-                  class="w-full mt-1 px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-semibold bg-white"
+                  class="w-full mt-1 px-2.5 py-1.5 border border-[#d5dbe1] rounded-lg text-xs font-semibold bg-white"
                 />
               </div>
             </div>
@@ -1518,7 +1518,7 @@
                   name="impQty"
                   [(ngModel)]="impositionQty"
                   (change)="calculateImposition()"
-                  class="w-full mt-1 px-3 py-2 border border-slate-300 rounded-lg text-xs font-semibold bg-white"
+                  class="w-full mt-1 px-3 py-2 border border-[#d5dbe1] rounded-lg text-xs font-semibold bg-white"
                   placeholder="5000"
                 />
               </div>
@@ -1529,7 +1529,7 @@
                   name="impSpoilage"
                   [(ngModel)]="impositionSpoilage"
                   (change)="calculateImposition()"
-                  class="w-full mt-1 px-3 py-2 border border-slate-300 rounded-lg text-xs font-semibold bg-white"
+                  class="w-full mt-1 px-3 py-2 border border-[#d5dbe1] rounded-lg text-xs font-semibold bg-white"
                   placeholder="3"
                 />
               </div>
@@ -1540,7 +1540,7 @@
             type="button"
             (click)="calculateImposition()"
             [disabled]="calculatingImposition()"
-            class="w-full py-2.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white text-xs font-semibold shadow-sm transition flex items-center justify-center space-x-2"
+            class="w-full py-2.5 rounded-xl bg-[#0098d4] hover:bg-[#0084b8] disabled:opacity-50 text-white text-xs font-semibold shadow-xs transition flex items-center justify-center space-x-2 cursor-pointer"
           >
             <span>📐</span>
             <span *ngIf="!calculatingImposition()">{{ i18n.t('គណនាប្លង់កាត់ (Calculate Imposition)', 'Calculate Imposition') }}</span>
