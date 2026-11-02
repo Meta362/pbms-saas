@@ -1,4 +1,4 @@
-﻿from decimal import Decimal
+from decimal import Decimal
 from django.conf import settings
 from django.db import models
 from apps.core.models import TimeStampedUUIDModel
@@ -413,8 +413,27 @@ class CustomerPayment(TimeStampedUUIDModel):
         related_name="payments",
     )
     amount_usd = models.DecimalField(max_digits=14, decimal_places=2)
+    currency = models.CharField(
+        max_length=3,
+        choices=[("USD", "USD"), ("KHR", "KHR")],
+        default="USD",
+    )
+    amount_khr = models.DecimalField(
+        max_digits=16,
+        decimal_places=0,
+        null=True,
+        blank=True,
+    )
+    exchange_rate_applied = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
     payment_method = models.CharField(max_length=32, default="KHQR_ABA")
     reference_number = models.CharField(max_length=100, blank=True, default="")
+    idempotency_key = models.CharField(max_length=100, blank=True, default="", db_index=True)
+    notes = models.TextField(blank=True, default="")
     recorded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.RESTRICT,

@@ -1,3 +1,4 @@
+import uuid
 import hashlib
 import secrets
 from django.conf import settings
@@ -14,6 +15,8 @@ from rest_framework.views import APIView
 from apps.accounts.jwt_service import create_session_and_issue_tokens, rotate_refresh_token
 from apps.accounts.models import AuthSession, PasswordResetToken
 from apps.accounts.serializers import (
+    PasswordChangeSerializer,
+    UserSessionSerializer,
     LoginRequestSerializer,
     PasswordResetConfirmSerializer,
     PasswordResetRequestSerializer,
@@ -554,9 +557,16 @@ class PasswordResetRequestAPIView(APIView):
 
         raw_token = None
         if user is not None:
+            # Invalidate any previously issued unused tokens for this user
+            now = timezone.now()
+            PasswordResetToken.objects.filter(
+                user=user,
+                is_used=False,
+            ).update(is_used=True, used_at=now)
+
             raw_token = secrets.token_urlsafe(32)
             token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
-            expires_at = timezone.now() + timezone.timedelta(hours=1)
+            expires_at = now + timezone.timedelta(hours=1)
 
             PasswordResetToken.objects.create(
                 user=user,
@@ -817,5 +827,148 @@ class StaffInvitationAcceptAPIView(APIView):
                     "memberships": _serialize_user_memberships(user),
                 },
             },
+            status=status.HTTP_200_OK,
+        )
+
+
+class PasswordResetValidateAPIView(APIView):
+    permission_classes = [AllowAny]
+    throttle_scope = "auth_login"
+
+    def get(self, request: Request) -> Response:
+        raw_token = request.query_params.get("token", "").strip()
+        if not raw_token:
+            return Response(
+                {"valid": False, "detail": "Token query parameter is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+        reset_token = (
+            PasswordResetToken.objects.select_related("user")
+            .filter(
+                token_hash=token_hash,
+                is_used=False,
+                expires_at__gt=timezone.now(),
+            )
+            .first()
+        )
+        if not reset_token or not reset_token.user.is_active:
+            return Response(
+                {"valid": False, "detail": "Invalid or expired password reset token."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        email_parts = reset_token.user.email.split("@")
+        masked = f"{email_parts[0][:2]}***@{email_parts[1]}" if len(email_parts) == 2 else "***"
+        return Response({"valid": True, "email_masked": masked}, status=status.HTTP_200_OK)
+
+
+class PasswordChangeAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request: Request) -> Response:
+        serializer = PasswordChangeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        user = request.user
+        current_password = serializer.validated_data["current_password"]
+        new_password = serializer.validated_data["new_password"]
+        revoke_other = serializer.validated_data.get("revoke_other_sessions", True)
+
+        if not user.check_password(current_password):
+            raise ValidationError({"current_password": "Current password is incorrect."})
+
+        user.set_password(new_password)
+        user.save(update_fields=["password", "updated_at"])
+
+        now = timezone.now()
+        current_session_id = getattr(request.auth, "id", None)
+
+        if revoke_other:
+            qs = AuthSession.objects.filter(user=user, is_revoked=False)
+            if current_session_id:
+                qs = qs.exclude(id=current_session_id)
+            qs.update(
+                is_revoked=True,
+                revoked_at=now,
+                revoked_reason="PASSWORD_CHANGED",
+            )
+
+        AuditEvent.objects.create(
+            actor_user=user,
+            event_type="AUTH_PASSWORD_CHANGED",
+            target_model="accounts.User",
+            target_id=str(user.id),
+            ip_address=_get_client_ip(request),
+            metadata={"revoke_other_sessions": revoke_other},
+        )
+
+        return Response({"detail": "Password changed successfully."}, status=status.HTTP_200_OK)
+
+
+class UserSessionListAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request: Request) -> Response:
+        now = timezone.now()
+        current_session_id = getattr(request.auth, "id", None)
+        active_sessions = (
+            AuthSession.objects.filter(
+                user=request.user,
+                is_revoked=False,
+                expires_at__gt=now,
+            )
+            .order_by("-created_at")
+        )
+
+        data = [
+            {
+                "id": str(s.id),
+                "ip_address": s.ip_address,
+                "user_agent": s.user_agent,
+                "created_at": s.created_at.isoformat(),
+                "expires_at": s.expires_at.isoformat(),
+                "is_current": s.id == current_session_id,
+            }
+            for s in active_sessions
+        ]
+        return Response({"sessions": data}, status=status.HTTP_200_OK)
+
+
+class UserSessionRevokeAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def delete(self, request: Request, session_id: uuid.UUID) -> Response:
+        session = AuthSession.objects.filter(id=session_id, user=request.user).first()
+        if not session:
+            return Response(
+                {"detail": "Session not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if session.is_revoked:
+            return Response(
+                {"detail": "Session already revoked."},
+                status=status.HTTP_200_OK,
+            )
+
+        session.is_revoked = True
+        session.revoked_at = timezone.now()
+        session.revoked_reason = "USER_REVOKED_REMOTE_SESSION"
+        session.save(update_fields=["is_revoked", "revoked_at", "revoked_reason"])
+
+        AuditEvent.objects.create(
+            actor_user=request.user,
+            event_type="AUTH_SESSION_REVOKED",
+            target_model="accounts.AuthSession",
+            target_id=str(session.id),
+            ip_address=_get_client_ip(request),
+            metadata={"session_id": str(session.id)},
+        )
+
+        return Response(
+            {"detail": "Session revoked successfully."},
             status=status.HTTP_200_OK,
         )

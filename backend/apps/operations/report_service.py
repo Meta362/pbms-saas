@@ -185,3 +185,237 @@ def generate_vat_sales_journal_csv(journal: Dict[str, Any]) -> str:
     )
 
     return output.getvalue()
+
+
+def generate_daily_sales_report(
+    tenant: Any,
+    date_str: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    REP-002: Daily sales and register reconciliation summary.
+    """
+    from django.db.models import Sum, Count
+    from apps.operations.models import CustomerPayment, SalesOrder, OrderStatus
+
+    now = timezone.now()
+    if date_str:
+        try:
+            target_date = timezone.datetime.strptime(date_str, "%Y-%m-%d").date()
+        except ValueError:
+            target_date = now.date()
+    else:
+        target_date = now.date()
+
+    rate = tenant.khr_exchange_rate or Decimal("4100.00")
+
+    orders = SalesOrder.objects.filter(
+        tenant=tenant,
+        created_at__date=target_date,
+    ).exclude(status=OrderStatus.CANCELED)
+
+    invoices = CustomerInvoice.objects.filter(
+        tenant=tenant,
+        created_at__date=target_date,
+    ).exclude(status=InvoiceStatus.VOIDED)
+
+    payments = CustomerPayment.objects.filter(
+        tenant=tenant,
+        created_at__date=target_date,
+    )
+
+    total_invoiced_usd = invoices.aggregate(s=Sum("total_usd"))["s"] or Decimal("0.00")
+    total_invoiced_khr = invoices.aggregate(s=Sum("total_khr"))["s"] or Decimal("0")
+
+    total_collected_usd = payments.aggregate(s=Sum("amount_usd"))["s"] or Decimal("0.00")
+    total_collected_khr = (total_collected_usd * rate).quantize(Decimal("1"))
+
+    # Breakdown by payment method
+    methods_data = (
+        payments.values("payment_method")
+        .annotate(count=Count("id"), total=Sum("amount_usd"))
+        .order_by("-total")
+    )
+    methods_breakdown = [
+        {
+            "payment_method": m["payment_method"],
+            "count": m["count"],
+            "total_usd": str(m["total"]),
+            "total_khr": str((m["total"] * rate).quantize(Decimal("1"))),
+        }
+        for m in methods_data
+    ]
+
+    return {
+        "tenant_id": str(tenant.id),
+        "report_date": target_date.strftime("%Y-%m-%d"),
+        "khr_exchange_rate": str(rate),
+        "orders_count": orders.count(),
+        "invoices_count": invoices.count(),
+        "total_invoiced_usd": str(total_invoiced_usd),
+        "total_invoiced_khr": str(total_invoiced_khr),
+        "payments_count": payments.count(),
+        "total_collected_usd": str(total_collected_usd),
+        "total_collected_khr": str(total_collected_khr),
+        "payment_methods": methods_breakdown,
+    }
+
+
+def generate_inventory_alerts_report(tenant: Any) -> Dict[str, Any]:
+    """
+    REP-003: Inventory stock alerts and reorder warning list.
+    """
+    from django.db.models import F
+    from apps.operations.models import Material
+
+    low_stock_materials = Material.objects.filter(
+        tenant=tenant,
+        current_stock__lte=F("reorder_level"),
+    ).order_by("current_stock")
+
+    items = []
+    total_estimated_reorder_usd = Decimal("0.00")
+    for mat in low_stock_materials:
+        deficit = max(Decimal("0.000"), mat.reorder_level - mat.current_stock)
+        est_cost = (deficit * mat.unit_cost_usd).quantize(Decimal("0.01"))
+        total_estimated_reorder_usd += est_cost
+        items.append(
+            {
+                "material_id": str(mat.id),
+                "sku": mat.sku,
+                "name": mat.name,
+                "unit": mat.unit,
+                "current_stock": str(mat.current_stock),
+                "reorder_level": str(mat.reorder_level),
+                "deficit_quantity": str(deficit),
+                "unit_cost_usd": str(mat.unit_cost_usd),
+                "estimated_reorder_cost_usd": str(est_cost),
+            }
+        )
+
+    return {
+        "tenant_id": str(tenant.id),
+        "alerts_count": len(items),
+        "total_estimated_reorder_cost_usd": str(total_estimated_reorder_usd),
+        "materials": items,
+    }
+
+
+def generate_customer_receivables_report(tenant: Any) -> Dict[str, Any]:
+    """
+    REP-004: Customer debt aging and outstanding receivables report.
+    """
+    from django.utils import timezone
+    from apps.operations.models import CustomerInvoice, InvoiceStatus
+
+    now = timezone.now()
+    rate = tenant.khr_exchange_rate or Decimal("4100.00")
+
+    unpaid_invoices = (
+        CustomerInvoice.objects.filter(
+            tenant=tenant,
+            balance_due_usd__gt=Decimal("0.00"),
+        )
+        .exclude(status=InvoiceStatus.VOIDED)
+        .select_related("sales_order__customer")
+        .order_by("-created_at")
+    )
+
+    customers_map = {}
+    total_receivables_usd = Decimal("0.00")
+    aging_summary = {
+        "days_0_30_usd": Decimal("0.00"),
+        "days_31_60_usd": Decimal("0.00"),
+        "days_over_60_usd": Decimal("0.00"),
+    }
+
+    for inv in unpaid_invoices:
+        cust = inv.sales_order.customer
+        cust_id = str(cust.id)
+        bal = inv.balance_due_usd
+        total_receivables_usd += bal
+
+        age_days = (now.date() - inv.created_at.date()).days
+        if age_days <= 30:
+            aging_summary["days_0_30_usd"] += bal
+        elif age_days <= 60:
+            aging_summary["days_31_60_usd"] += bal
+        else:
+            aging_summary["days_over_60_usd"] += bal
+
+        if cust_id not in customers_map:
+            customers_map[cust_id] = {
+                "customer_id": cust_id,
+                "customer_name": cust.name,
+                "customer_phone": cust.phone,
+                "company_name": cust.company_name,
+                "unpaid_invoices_count": 0,
+                "total_balance_usd": Decimal("0.00"),
+                "total_balance_khr": Decimal("0"),
+            }
+        customers_map[cust_id]["unpaid_invoices_count"] += 1
+        customers_map[cust_id]["total_balance_usd"] += bal
+        customers_map[cust_id]["total_balance_khr"] = (
+            customers_map[cust_id]["total_balance_usd"] * rate
+        ).quantize(Decimal("1"))
+
+    customer_list = [
+        {
+            **v,
+            "total_balance_usd": str(v["total_balance_usd"]),
+            "total_balance_khr": str(v["total_balance_khr"]),
+        }
+        for v in customers_map.values()
+    ]
+    customer_list.sort(key=lambda x: Decimal(x["total_balance_usd"]), reverse=True)
+
+    return {
+        "tenant_id": str(tenant.id),
+        "total_receivables_usd": str(total_receivables_usd),
+        "total_receivables_khr": str((total_receivables_usd * rate).quantize(Decimal("1"))),
+        "customers_count": len(customer_list),
+        "aging_breakdown": {
+            k: str(v) for k, v in aging_summary.items()
+        },
+        "debtors": customer_list,
+    }
+
+
+def generate_production_queue_report(tenant: Any) -> Dict[str, Any]:
+    """
+    REP-005: Real-time production queue grouped by stage.
+    """
+    from apps.operations.models import ProductionJob, ProductionStage
+
+    jobs = (
+        ProductionJob.objects.filter(tenant=tenant)
+        .exclude(stage=ProductionStage.COMPLETED)
+        .select_related("sales_order__customer")
+        .order_by("created_at")
+    )
+
+    stage_groups = {s.value: [] for s in ProductionStage if s != ProductionStage.COMPLETED}
+    for job in jobs:
+        stage_groups[job.stage].append(
+            {
+                "job_id": str(job.id),
+                "job_code": job.job_Code,
+                "stage": job.stage,
+                "order_number": job.sales_order.order_number,
+                "customer_name": job.sales_order.customer.name,
+                "target_delivery_date": (
+                    job.sales_order.target_delivery_date.strftime("%Y-%m-%d")
+                    if job.sales_order.target_delivery_date
+                    else None
+                ),
+                "created_at": job.created_at.isoformat(),
+            }
+        )
+
+    return {
+        "tenant_id": str(tenant.id),
+        "active_jobs_count": jobs.count(),
+        "stages": {
+            stage: {"count": len(items), "jobs": items}
+            for stage, items in stage_groups.items()
+        },
+    }

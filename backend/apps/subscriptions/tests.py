@@ -8,6 +8,7 @@ from apps.accounts.models import PlatformRole
 from apps.subscriptions.models import (
     BillingCycle,
     PaymentProvider,
+    PaymentStatus,
     Plan,
     SubscriptionStatus,
     TenantSubscription,
@@ -668,3 +669,107 @@ class SaaSSubscriptionAndSuperAdminGovernanceTests(TestCase):
         # Tenant stays PENDING_REVIEW and subscription stays INCOMPLETE
         tenant.refresh_from_db()
         self.assertEqual(tenant.status, TenantStatus.PENDING_REVIEW)
+
+
+    def test_tenant_subscription_management_and_guardrails(self) -> None:
+        """SUB-001: Verifies tenant subscription view, plan change with guardrails, and renewal."""
+        ensure_default_plans()
+        growth_plan = Plan.objects.get(code="growth")
+        owner = User.objects.create_user(
+            email="sub_owner@printshop.local",
+            password="SubOwnerPass#2026",
+            full_name="Subscription Owner",
+        )
+        tenant = Tenant.objects.create(
+            name="Sub Demo Shop",
+            slug="sub-demo-shop",
+            status=TenantStatus.ACTIVE,
+        )
+        TenantMembership.objects.create(
+            tenant=tenant,
+            user=owner,
+            role=TenantRole.TENANT_OWNER,
+            is_active=True,
+        )
+        sub = TenantSubscription.objects.create(
+            tenant=tenant,
+            plan=growth_plan,
+            billing_cycle=BillingCycle.MONTHLY,
+            status=SubscriptionStatus.ACTIVE,
+            current_period_start=timezone.now(),
+            current_period_end=timezone.now() + timedelta(days=30),
+        )
+
+        self.client.force_authenticate(user=owner)
+        self.client.credentials(HTTP_X_TENANT_ID=str(tenant.id))
+
+        # 1. GET /api/v1/tenant/subscription/
+        sub_res = self.client.get("/api/v1/tenant/subscription/")
+        self.assertEqual(sub_res.status_code, 200)
+        data = sub_res.json()
+        self.assertEqual(data["plan"]["code"], "growth")
+        self.assertEqual(data["status"], "ACTIVE")
+        self.assertEqual(data["quotas"]["staff_seats_used"], 1)
+
+        # 2. Add 5 staff members to exceed starter plan's max_staff_users (5)
+        for i in range(5):
+            u = User.objects.create_user(
+                email=f"sub_staff_{i}@printshop.local",
+                password="StaffPass#2026",
+            )
+            TenantMembership.objects.create(
+                tenant=tenant,
+                user=u,
+                role=TenantRole.PRODUCTION_STAFF,
+                is_active=True,
+            )
+        # Total active staff is now 6 (1 owner + 5 staff)
+
+        # 3. Attempt to downgrade to starter plan (max_staff_users = 5) -> 400 Bad Request
+        down_res = self.client.post(
+            "/api/v1/tenant/subscription/change-plan/",
+            {"plan_code": "starter"},
+            format="json",
+        )
+        self.assertEqual(down_res.status_code, 400)
+        self.assertIn("Cannot downgrade", down_res.json()["detail"])
+
+        # 4. Upgrade to enterprise plan -> 200 OK
+        up_res = self.client.post(
+            "/api/v1/tenant/subscription/change-plan/",
+            {"plan_code": "enterprise"},
+            format="json",
+        )
+        self.assertEqual(up_res.status_code, 200)
+        sub.refresh_from_db()
+        self.assertEqual(sub.plan.code, "enterprise")
+
+        # 5. Submit renewal payment
+        renew_res = self.client.post(
+            "/api/v1/tenant/subscription/renew/",
+            {
+                "payment_method": "KHQR_BAKONG",
+                "reference_number": "RENEW-TXN-001",
+                "idempotency_key": "renew-idem-001",
+            },
+            format="json",
+        )
+        self.assertEqual(renew_res.status_code, 201)
+        self.assertEqual(renew_res.json()["status"], PaymentStatus.PENDING)
+
+        # 6. Replay with same idempotency_key -> 200 OK
+        replay_res = self.client.post(
+            "/api/v1/tenant/subscription/renew/",
+            {
+                "payment_method": "KHQR_BAKONG",
+                "reference_number": "RENEW-TXN-001",
+                "idempotency_key": "renew-idem-001",
+            },
+            format="json",
+        )
+        self.assertEqual(replay_res.status_code, 200)
+
+        # 7. Check payment history
+        hist_res = self.client.get("/api/v1/tenant/subscription/payments/")
+        self.assertEqual(hist_res.status_code, 200)
+        self.assertGreaterEqual(len(hist_res.json()["payments"]), 1)

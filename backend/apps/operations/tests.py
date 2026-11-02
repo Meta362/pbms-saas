@@ -8,6 +8,7 @@ from rest_framework.test import APIClient
 from apps.operations.models import (
     Customer,
     CustomerInvoice,
+    Material,
     ProductionJob,
     Quotation,
     QuotationStatus,
@@ -1661,3 +1662,253 @@ class CommercialToolsAndReportingTests(TestCase):
         )
         self.assertEqual(zero_res.status_code, 400)
         self.assertIn("quantity_delta", zero_res.json())
+
+
+    def test_quotation_approval_rejection_and_conversion_guardrails(self) -> None:
+        """OPS-001: Verifies quotation approve, reject, detail, and conversion guardrails."""
+        self._login_as(self.owner_a, self.tenant_a)
+
+        # 1. Create a draft quotation
+        q_res = self.client.post(
+            "/api/v1/tenant/quotations/",
+            {
+                "customer_id": str(self.customer.id),
+                "title": "Approval Test Flyers",
+                "quantity": 1000,
+                "setup_fee_usd": "10.00",
+                "unit_price_usd": "0.0500",
+            },
+            format="json",
+        )
+        self.assertEqual(q_res.status_code, 201)
+        quote_id = q_res.json()["id"]
+
+        # 2. Detail view
+        get_res = self.client.get(f"/api/v1/tenant/quotations/{quote_id}/")
+        self.assertEqual(get_res.status_code, 200)
+        self.assertEqual(get_res.json()["status"], "DRAFT")
+
+        # 3. Approve quotation
+        app_res = self.client.post(f"/api/v1/tenant/quotations/{quote_id}/approve/")
+        self.assertEqual(app_res.status_code, 200)
+        self.assertEqual(app_res.json()["status"], "APPROVED")
+
+        # 4. Create another quote and reject it
+        q2_res = self.client.post(
+            "/api/v1/tenant/quotations/",
+            {
+                "customer_id": str(self.customer.id),
+                "title": "Reject Test Posters",
+                "quantity": 200,
+                "unit_price_usd": "1.0000",
+            },
+            format="json",
+        )
+        q2_id = q2_res.json()["id"]
+        rej_res = self.client.post(
+            f"/api/v1/tenant/quotations/{q2_id}/reject/",
+            {"reason": "Customer found cheaper supplier"},
+            format="json",
+        )
+        self.assertEqual(rej_res.status_code, 200)
+        self.assertEqual(rej_res.json()["status"], "REJECTED")
+
+        # 5. Attempt to convert rejected quotation -> 400
+        conv_rej = self.client.post(f"/api/v1/tenant/quotations/{q2_id}/convert/")
+        self.assertEqual(conv_rej.status_code, 400)
+        self.assertIn("Cannot convert a rejected quotation", str(conv_rej.json()))
+
+    def test_sales_order_completion_and_cancellation(self) -> None:
+        """OPS-002: Verifies sales order completion and cancellation lifecycle."""
+        self._login_as(self.owner_a, self.tenant_a)
+
+        # 1. Create quote and convert to order
+        q_res = self.client.post(
+            "/api/v1/tenant/quotations/",
+            {
+                "customer_id": str(self.customer.id),
+                "title": "Complete Order Test",
+                "quantity": 100,
+                "unit_price_usd": "0.5000",
+            },
+            format="json",
+        )
+        quote_id = q_res.json()["id"]
+        conv_res = self.client.post(f"/api/v1/tenant/quotations/{quote_id}/convert/")
+        self.assertEqual(conv_res.status_code, 201)
+        order_id = conv_res.json()["id"]
+
+        # 2. Get order detail
+        ord_res = self.client.get(f"/api/v1/tenant/orders/{order_id}/")
+        self.assertEqual(ord_res.status_code, 200)
+        self.assertEqual(ord_res.json()["status"], "CONFIRMED")
+
+        # 3. Complete order
+        comp_res = self.client.post(f"/api/v1/tenant/orders/{order_id}/complete/")
+        self.assertEqual(comp_res.status_code, 200)
+        self.assertEqual(comp_res.json()["status"], "COMPLETED")
+
+        # Cannot cancel completed order -> 400
+        bad_cancel = self.client.post(f"/api/v1/tenant/orders/{order_id}/cancel/")
+        self.assertEqual(bad_cancel.status_code, 400)
+
+    def test_production_queue_and_invoice_voiding(self) -> None:
+        """OPS-003: Verifies production queue listing and invoice voiding."""
+        self._login_as(self.owner_a, self.tenant_a)
+
+        # 1. Create order
+        q_res = self.client.post(
+            "/api/v1/tenant/quotations/",
+            {
+                "customer_id": str(self.customer.id),
+                "title": "Void Invoice Test",
+                "quantity": 50,
+                "unit_price_usd": "2.0000",
+            },
+            format="json",
+        )
+        quote_id = q_res.json()["id"]
+        conv_res = self.client.post(f"/api/v1/tenant/quotations/{quote_id}/convert/")
+        invoice_id = conv_res.json()["invoice_id"]
+        job_id = conv_res.json()["production_job_id"]
+
+        # 2. Production queue list
+        jobs_res = self.client.get("/api/v1/tenant/production-jobs/?stage=PENDING")
+        self.assertEqual(jobs_res.status_code, 200)
+        self.assertGreaterEqual(len(jobs_res.json()), 1)
+
+        # 3. Production job detail
+        job_res = self.client.get(f"/api/v1/tenant/production-jobs/{job_id}/")
+        self.assertEqual(job_res.status_code, 200)
+        self.assertEqual(job_res.json()["stage"], "PENDING")
+
+        # 4. Invoice detail
+        inv_res = self.client.get(f"/api/v1/tenant/invoices/{invoice_id}/")
+        self.assertEqual(inv_res.status_code, 200)
+        self.assertEqual(inv_res.json()["status"], "ISSUED")
+
+        # 5. Void invoice
+        void_res = self.client.post(
+            f"/api/v1/tenant/invoices/{invoice_id}/void/",
+            {"reason": "Customer canceled before printing"},
+            format="json",
+        )
+        self.assertEqual(void_res.status_code, 200)
+        self.assertEqual(void_res.json()["status"], "VOIDED")
+
+    def test_dual_currency_khr_payment_idempotency_and_khqr_verification(self) -> None:
+        """OPS-004: Verifies KHR payment, idempotency replay, and KHQR verification."""
+        self._login_as(self.owner_a, self.tenant_a)
+
+        q_res = self.client.post(
+            "/api/v1/tenant/quotations/",
+            {
+                "customer_id": str(self.customer.id),
+                "title": "Dual Currency KHQR Test",
+                "quantity": 100,
+                "unit_price_usd": "1.0000",  # Total ~$110 USD with VAT
+            },
+            format="json",
+        )
+        conv_res = self.client.post(f"/api/v1/tenant/quotations/{q_res.json()['id']}/convert/")
+        invoice_id = conv_res.json()["invoice_id"]
+
+        # 1. Pay partial in KHR (e.g. 41,000 KHR = $10.00 USD at 4100 rate)
+        pay_res = self.client.post(
+            f"/api/v1/tenant/invoices/{invoice_id}/payments/",
+            {
+                "currency": "KHR",
+                "amount_khr": "41000",
+                "payment_method": "CASH_KHR",
+                "reference_number": "KHR-CASH-001",
+                "idempotency_key": "khr-idem-001",
+            },
+            format="json",
+        )
+        self.assertEqual(pay_res.status_code, 200)
+        self.assertEqual(pay_res.json()["paid_usd"], "10.00")
+        self.assertIn("payment", pay_res.json())
+        self.assertEqual(pay_res.json()["payment"]["currency"], "KHR")
+
+        # 2. Idempotent replay with same idempotency_key -> same result, no double deduction
+        replay_res = self.client.post(
+            f"/api/v1/tenant/invoices/{invoice_id}/payments/",
+            {
+                "currency": "KHR",
+                "amount_khr": "41000",
+                "payment_method": "CASH_KHR",
+                "reference_number": "KHR-CASH-001",
+                "idempotency_key": "khr-idem-001",
+            },
+            format="json",
+        )
+        self.assertEqual(replay_res.status_code, 200)
+        self.assertEqual(replay_res.json()["paid_usd"], "10.00")
+
+        # 3. Check GET invoice payments
+        pays_res = self.client.get(f"/api/v1/tenant/invoices/{invoice_id}/payments/")
+        self.assertEqual(pays_res.status_code, 200)
+        self.assertEqual(len(pays_res.json()), 1)
+
+        # 4. Check tenant payments list
+        all_pays_res = self.client.get("/api/v1/tenant/payments/")
+        self.assertEqual(all_pays_res.status_code, 200)
+        self.assertGreaterEqual(len(all_pays_res.json()), 1)
+
+        # 5. KHQR Verification endpoint
+        verify_res = self.client.post(
+            f"/api/v1/tenant/invoices/{invoice_id}/khqr/verify/",
+            {
+                "bank_reference": "NBC-BAKONG-TXN-123456",
+            },
+            format="json",
+        )
+        self.assertEqual(verify_res.status_code, 200)
+        self.assertEqual(verify_res.json()["verification_status"], "VERIFIED")
+        self.assertEqual(verify_res.json()["invoice"]["status"], "PAID")
+        self.assertEqual(verify_res.json()["invoice"]["balance_due_usd"], "0.00")
+
+    def test_operational_reports_and_master_presets(self) -> None:
+        """OPS-005: Verifies operational reports and 1-click material master presets."""
+        self._login_as(self.owner_a, self.tenant_a)
+
+        # 1. Daily sales report
+        sales_rep = self.client.get("/api/v1/tenant/reports/daily-sales/")
+        self.assertEqual(sales_rep.status_code, 200)
+        self.assertIn("total_invoiced_usd", sales_rep.json())
+        self.assertIn("payment_methods", sales_rep.json())
+
+        # 2. Inventory alerts report
+        inv_rep = self.client.get("/api/v1/tenant/reports/inventory-alerts/")
+        self.assertEqual(inv_rep.status_code, 200)
+        self.assertIn("alerts_count", inv_rep.json())
+
+        # 3. Receivables aging report
+        rec_rep = self.client.get("/api/v1/tenant/reports/receivables/")
+        self.assertEqual(rec_rep.status_code, 200)
+        self.assertIn("aging_breakdown", rec_rep.json())
+
+        # 4. Production queue report
+        prod_rep = self.client.get("/api/v1/tenant/reports/production-queue/")
+        self.assertEqual(prod_rep.status_code, 200)
+        self.assertIn("stages", prod_rep.json())
+
+        # 5. Master presets seeder
+        preset_res = self.client.post(
+            "/api/v1/tenant/materials/seed-presets/",
+            {"pack_type": "DIGITAL"},
+            format="json",
+        )
+        self.assertEqual(preset_res.status_code, 200)
+        self.assertIn("materials_seeded", preset_res.json())
+
+        # 6. Customer & Material detail endpoints
+        cust_detail = self.client.get(f"/api/v1/tenant/customers/{self.customer.id}/")
+        self.assertEqual(cust_detail.status_code, 200)
+        self.assertEqual(cust_detail.json()["name"], self.customer.name)
+
+        mat = Material.objects.filter(tenant=self.tenant_a).first()
+        if mat:
+            mat_detail = self.client.get(f"/api/v1/tenant/materials/{mat.id}/")
+            self.assertEqual(mat_detail.status_code, 200)
+            self.assertEqual(mat_detail.json()["sku"], mat.sku)

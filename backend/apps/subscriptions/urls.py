@@ -1,6 +1,10 @@
 from django.urls import path
 from apps.subscriptions.views import (
     PublicPlanListAPIView,
+    TenantSubscriptionChangePlanAPIView,
+    TenantSubscriptionCurrentAPIView,
+    TenantSubscriptionPaymentHistoryAPIView,
+    TenantSubscriptionRenewAPIView,
     PublicTenantRegistrationAPIView,
     SuperAdminOverviewAPIView,
     SuperAdminPaymentReconcileAPIView,
@@ -13,6 +17,12 @@ from apps.subscriptions.views import (
 )
 
 urlpatterns = [
+    # Frontend B: Tenant Workspace Subscription Management endpoints
+    path("tenant/subscription/", TenantSubscriptionCurrentAPIView.as_view(), name="tenant-subscription-current"),
+    path("tenant/subscription/change-plan/", TenantSubscriptionChangePlanAPIView.as_view(), name="tenant-subscription-change-plan"),
+    path("tenant/subscription/renew/", TenantSubscriptionRenewAPIView.as_view(), name="tenant-subscription-renew"),
+    path("tenant/subscription/payments/", TenantSubscriptionPaymentHistoryAPIView.as_view(), name="tenant-subscription-payments"),
+
     # Frontend C: Public SaaS Website endpoints
     path("public/plans/", PublicPlanListAPIView.as_view(), name="public-plans"),
     path(

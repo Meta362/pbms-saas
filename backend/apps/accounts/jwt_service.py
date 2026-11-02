@@ -80,7 +80,9 @@ def create_session_and_issue_tokens(
         excess = active_sessions.count() - max_devices + 1
         for old_s in active_sessions[:excess]:
             old_s.is_revoked = True
-            old_s.save(update_fields=["is_revoked"])
+            old_s.revoked_at = now
+            old_s.revoked_reason = "CONCURRENT_DEVICE_LIMIT_EXCEEDED"
+            old_s.save(update_fields=["is_revoked", "revoked_at", "revoked_reason"])
 
     session = AuthSession.objects.create(
         user=user,

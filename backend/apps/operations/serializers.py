@@ -3,6 +3,7 @@ from rest_framework import serializers
 from apps.operations.models import (
     Customer,
     CustomerInvoice,
+    CustomerPayment,
     InventoryTransaction,
     InventoryTransactionType,
     Material,
@@ -256,9 +257,78 @@ class InvoicePaymentCreateSerializer(serializers.Serializer):
         max_digits=14,
         decimal_places=2,
         min_value=Decimal("0.01"),
+        required=False,
+    )
+    currency = serializers.ChoiceField(choices=["USD", "KHR"], default="USD", required=False)
+    amount_khr = serializers.DecimalField(
+        max_digits=16,
+        decimal_places=0,
+        min_value=Decimal("100"),
+        required=False,
     )
     payment_method = serializers.CharField(max_length=32, default="KHQR_ABA")
     reference_number = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
+    idempotency_key = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
+    notes = serializers.CharField(required=False, allow_blank=True, default="")
+
+    def validate(self, attrs: dict) -> dict:
+        curr = attrs.get("currency", "USD").upper()
+        if curr == "KHR":
+            if not attrs.get("amount_khr"):
+                raise serializers.ValidationError({"amount_khr": "amount_khr is required for KHR currency payments."})
+        else:
+            if not attrs.get("amount_usd"):
+                raise serializers.ValidationError({"amount_usd": "amount_usd is required for USD currency payments."})
+        return attrs
+
+
+class CustomerPaymentSerializer(serializers.ModelSerializer):
+    invoice_number = serializers.CharField(source="invoice.invoice_number", read_only=True)
+    customer_name = serializers.CharField(source="invoice.sales_order.customer.name", read_only=True)
+    recorded_by_name = serializers.CharField(source="recorded_by.full_name", read_only=True)
+
+    class Meta:
+        model = CustomerPayment
+        fields = [
+            "id",
+            "invoice",
+            "invoice_number",
+            "customer_name",
+            "amount_usd",
+            "currency",
+            "amount_khr",
+            "exchange_rate_applied",
+            "payment_method",
+            "reference_number",
+            "idempotency_key",
+            "notes",
+            "recorded_by",
+            "recorded_by_name",
+            "created_at",
+        ]
+
+
+class ProductionJobSerializer(serializers.ModelSerializer):
+    job_code = serializers.CharField(source="job_Code", read_only=True)
+    order_number = serializers.CharField(source="sales_order.order_number", read_only=True)
+    customer_name = serializers.CharField(source="sales_order.customer.name", read_only=True)
+    updated_by_name = serializers.CharField(source="updated_by.full_name", read_only=True)
+
+    class Meta:
+        model = ProductionJob
+        fields = [
+            "id",
+            "job_code",
+            "sales_order",
+            "order_number",
+            "customer_name",
+            "stage",
+            "operator_notes",
+            "updated_by",
+            "updated_by_name",
+            "created_at",
+            "updated_at",
+        ]
 
 
 class ImpositionCalculateSerializer(serializers.Serializer):

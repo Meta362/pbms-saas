@@ -121,21 +121,24 @@ class HasActiveTenantMembership(BasePermission):
             raise PermissionDenied(
                 "Access denied: Tenant does not have an active subscription."
             )
-        if subscription.status not in (
-            SubscriptionStatus.ACTIVE,
-            SubscriptionStatus.TRIALING,
-        ):
-            raise PermissionDenied(
-                f"Access denied: Tenant subscription is not active (status: {subscription.status})."
-            )
         now = timezone.now()
-        if (
-            subscription.current_period_end is None
-            or subscription.current_period_end <= now
-        ):
-            raise PermissionDenied(
-                "Access denied: Tenant subscription billing period has expired."
-            )
+        is_billing_endpoint = getattr(view, "is_subscription_management_endpoint", False)
+
+        if not is_billing_endpoint:
+            if subscription.status not in (
+                SubscriptionStatus.ACTIVE,
+                SubscriptionStatus.TRIALING,
+            ):
+                raise PermissionDenied(
+                    f"Access denied: Tenant subscription is not active (status: {subscription.status})."
+                )
+            if (
+                subscription.current_period_end is None
+                or subscription.current_period_end <= now
+            ):
+                raise PermissionDenied(
+                    "Access denied: Tenant subscription billing period has expired."
+                )
 
         roles_by_method = getattr(view, "allowed_tenant_roles_by_method", None)
         if isinstance(roles_by_method, dict):

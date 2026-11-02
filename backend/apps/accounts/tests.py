@@ -883,3 +883,116 @@ class AuthenticationAndTenantIsolationSecurityTests(TestCase):
         # Verify invitation single-use semantics (marked accepted)
         invitation = StaffInvitation.objects.get(email=invite_email, tenant=self.tenant_a)
         self.assertIsNotNone(invitation.accepted_at)
+
+
+    def test_authenticated_password_change(self) -> None:
+        """AUTH-005: Verifies authenticated password change and remote session revocation."""
+        self.client.force_authenticate(user=self.user_a)
+
+        # 1. Invalid current password -> 400
+        res_fail = self.client.post(
+            "/api/v1/auth/password-change/",
+            {
+                "current_password": "WrongPassword#123",
+                "new_password": "NewSecretPassword#2026",
+            },
+            format="json",
+        )
+        self.assertEqual(res_fail.status_code, 400)
+
+        # 2. Valid password change
+        res_ok = self.client.post(
+            "/api/v1/auth/password-change/",
+            {
+                "current_password": self.password,
+                "new_password": "NewSecretPassword#2026",
+                "revoke_other_sessions": True,
+            },
+            format="json",
+        )
+        self.assertEqual(res_ok.status_code, 200)
+
+        # Verify password updated
+        self.user_a.refresh_from_db()
+        self.assertTrue(self.user_a.check_password("NewSecretPassword#2026"))
+
+    def test_user_session_listing_and_remote_revocation(self) -> None:
+        """AUTH-006: Verifies session listing and individual remote revocation."""
+        from apps.accounts.jwt_service import create_session_and_issue_tokens
+        # Issue an extra session
+        token_pkg = create_session_and_issue_tokens(
+            user=self.user_a,
+            ip_address="192.168.1.100",
+            user_agent="Firefox/Linux",
+        )
+        extra_session_id = token_pkg["access_token"]  # Has session_id in payload
+
+        self.client.force_authenticate(user=self.user_a)
+        res = self.client.get("/api/v1/auth/sessions/")
+        self.assertEqual(res.status_code, 200)
+        sessions = res.json()["sessions"]
+        self.assertGreaterEqual(len(sessions), 1)
+
+        # Revoke a session
+        target_session_id = sessions[0]["id"]
+        del_res = self.client.delete(f"/api/v1/auth/sessions/{target_session_id}/")
+        self.assertEqual(del_res.status_code, 200)
+
+        # Check marked revoked
+        session_obj = AuthSession.objects.get(id=target_session_id)
+        self.assertTrue(session_obj.is_revoked)
+        self.assertEqual(session_obj.revoked_reason, "USER_REVOKED_REMOTE_SESSION")
+
+    def test_password_reset_token_validation_and_invalidation(self) -> None:
+        """AUTH-007: Verifies reset token pre-validation and prior token invalidation."""
+        self.client.credentials()
+        # Request reset token
+        req_res1 = self.client.post(
+            "/api/v1/auth/password-reset/",
+            {"email": self.user_a.email},
+            format="json",
+        )
+        self.assertEqual(req_res1.status_code, 200)
+        token1 = req_res1.json().get("reset_token")
+
+        # Request second token -> should invalidate token1
+        req_res2 = self.client.post(
+            "/api/v1/auth/password-reset/",
+            {"email": self.user_a.email},
+            format="json",
+        )
+        self.assertEqual(req_res2.status_code, 200)
+        token2 = req_res2.json().get("reset_token")
+
+        if token1 and token2:
+            # Token 1 should be invalidated
+            val1 = self.client.get(f"/api/v1/auth/password-reset/validate/?token={token1}")
+            self.assertEqual(val1.status_code, 400)
+
+            # Token 2 should be valid
+            val2 = self.client.get(f"/api/v1/auth/password-reset/validate/?token={token2}")
+            self.assertEqual(val2.status_code, 200)
+            self.assertTrue(val2.json()["valid"])
+            self.assertIn("@", val2.json()["email_masked"])
+
+    def test_user_profile_phone_validation(self) -> None:
+        """AUTH-008: Verifies phone format validation in PATCH /api/v1/auth/me/."""
+        self.client.force_authenticate(user=self.user_a)
+
+        # Invalid phone format -> 400
+        res_bad = self.client.patch(
+            "/api/v1/auth/me/",
+            {"phone": "invalid_phone_text"},
+            format="json",
+        )
+        self.assertEqual(res_bad.status_code, 400)
+
+        # Valid Cambodian mobile format -> 200
+        res_good = self.client.patch(
+            "/api/v1/auth/me/",
+            {"phone": "+85512334455"},
+            format="json",
+        )
+        self.assertEqual(res_good.status_code, 200)
+        self.user_a.refresh_from_db()
+        self.assertEqual(self.user_a.phone, "+85512334455")

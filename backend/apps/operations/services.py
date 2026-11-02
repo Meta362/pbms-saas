@@ -1,3 +1,4 @@
+from typing import Optional
 from decimal import Decimal, ROUND_HALF_UP
 from django.db import transaction
 from django.utils import timezone
@@ -233,6 +234,8 @@ def convert_quotation_to_order_and_invoice(
 
     if quote.status == QuotationStatus.CONVERTED:
         raise ValidationError("Quotation has already been converted to a Sales Order.")
+    if quote.status == QuotationStatus.REJECTED:
+        raise ValidationError("Cannot convert a rejected quotation to a Sales Order.")
 
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     if month_start.month == 12:
@@ -342,13 +345,17 @@ def record_customer_invoice_payment(
     *,
     tenant: Tenant,
     invoice_id: str,
-    amount_usd: Decimal,
-    payment_method: str,
-    reference_number: str,
+    amount_usd: Optional[Decimal] = None,
+    currency: str = "USD",
+    amount_khr: Optional[Decimal] = None,
+    payment_method: str = "KHQR_ABA",
+    reference_number: str = "",
+    idempotency_key: str = "",
+    notes: str = "",
     actor_user,
 ) -> CustomerPayment:
     """
-    REQ-PRINT-05: Allocates deposit or final payment against a CustomerInvoice.
+    REQ-PRINT-05: Allocates deposit or final payment against a CustomerInvoice with dual-currency & idempotency support.
     """
     try:
         invoice = CustomerInvoice.objects.select_for_update().get(
@@ -361,24 +368,54 @@ def record_customer_invoice_payment(
     if invoice.status == InvoiceStatus.VOIDED:
         raise ValidationError("Cannot record payment on a voided invoice.")
 
-    amount_usd = round_usd(amount_usd)
-    if amount_usd <= Decimal("0.00"):
-        raise ValidationError("Payment amount must be greater than zero.")
-    if amount_usd > invoice.balance_due_usd:
+    # Idempotent replay check
+    if idempotency_key:
+        existing_payment = CustomerPayment.objects.filter(
+            tenant=tenant,
+            invoice=invoice,
+            idempotency_key=idempotency_key,
+        ).first()
+        if existing_payment is not None:
+            return existing_payment
+
+    rate = tenant.khr_exchange_rate or Decimal("4100.00")
+    currency_norm = (currency or "USD").upper().strip()
+
+    if currency_norm == "KHR":
+        if amount_khr is None or amount_khr <= Decimal("0"):
+            raise ValidationError("Payment amount in KHR must be greater than zero.")
+        computed_usd = round_usd(amount_khr / rate)
+        applied_rate = rate
+    else:
+        currency_norm = "USD"
+        if amount_usd is None or amount_usd <= Decimal("0.00"):
+            raise ValidationError("Payment amount must be greater than zero.")
+        computed_usd = round_usd(amount_usd)
+        amount_khr = round_khr_nearest_100(computed_usd, rate)
+        applied_rate = rate
+
+    if computed_usd <= Decimal("0.00"):
+        raise ValidationError("Calculated payment amount must be greater than zero.")
+    if computed_usd > invoice.balance_due_usd:
         raise ValidationError(
-            f"Payment amount (${amount_usd}) exceeds remaining balance due (${invoice.balance_due_usd})."
+            f"Payment amount (${computed_usd}) exceeds remaining balance due (${invoice.balance_due_usd})."
         )
 
     payment = CustomerPayment.objects.create(
         tenant=tenant,
         invoice=invoice,
-        amount_usd=amount_usd,
+        amount_usd=computed_usd,
+        currency=currency_norm,
+        amount_khr=amount_khr,
+        exchange_rate_applied=applied_rate,
         payment_method=payment_method,
         reference_number=reference_number,
+        idempotency_key=idempotency_key,
+        notes=notes,
         recorded_by=actor_user,
     )
 
-    invoice.paid_usd = round_usd(invoice.paid_usd + amount_usd)
+    invoice.paid_usd = round_usd(invoice.paid_usd + computed_usd)
     invoice.balance_due_usd = round_usd(invoice.total_usd - invoice.paid_usd)
     invoice.status = (
         InvoiceStatus.PAID
@@ -395,9 +432,162 @@ def record_customer_invoice_payment(
         target_id=str(invoice.id),
         metadata={
             "invoice_number": invoice.invoice_number,
-            "amount_usd": str(amount_usd),
+            "amount_usd": str(computed_usd),
+            "currency": currency_norm,
+            "amount_khr": str(amount_khr) if amount_khr else "0",
             "balance_due_usd": str(invoice.balance_due_usd),
             "status": invoice.status,
+            "payment_method": payment_method,
+            "reference_number": reference_number,
         },
     )
     return payment
+
+
+@transaction.atomic
+def approve_quotation(*, tenant: Tenant, quotation_id: str, actor_user) -> Quotation:
+    """
+    Marks quotation as APPROVED by customer/manager.
+    """
+    try:
+        quote = Quotation.objects.select_for_update().get(id=quotation_id, tenant=tenant)
+    except Quotation.DoesNotExist as exc:
+        raise ValidationError("Quotation not found in this tenant.") from exc
+
+    if quote.status == QuotationStatus.CONVERTED:
+        raise ValidationError("Quotation has already been converted to an order.")
+    if quote.status == QuotationStatus.APPROVED:
+        return quote
+
+    quote.status = QuotationStatus.APPROVED
+    quote.save(update_fields=["status", "updated_at"])
+
+    AuditEvent.objects.create(
+        actor_user=actor_user,
+        tenant=tenant,
+        event_type="QUOTATION_APPROVED",
+        target_model="operations.Quotation",
+        target_id=str(quote.id),
+        metadata={"quote_number": quote.quote_number},
+    )
+    return quote
+
+
+@transaction.atomic
+def reject_quotation(*, tenant: Tenant, quotation_id: str, actor_user, reason: str = "") -> Quotation:
+    """
+    Marks quotation as REJECTED.
+    """
+    try:
+        quote = Quotation.objects.select_for_update().get(id=quotation_id, tenant=tenant)
+    except Quotation.DoesNotExist as exc:
+        raise ValidationError("Quotation not found in this tenant.") from exc
+
+    if quote.status == QuotationStatus.CONVERTED:
+        raise ValidationError("Cannot reject a quotation that has already been converted.")
+
+    quote.status = QuotationStatus.REJECTED
+    quote.save(update_fields=["status", "updated_at"])
+
+    AuditEvent.objects.create(
+        actor_user=actor_user,
+        tenant=tenant,
+        event_type="QUOTATION_REJECTED",
+        target_model="operations.Quotation",
+        target_id=str(quote.id),
+        metadata={"quote_number": quote.quote_number, "reason": reason},
+    )
+    return quote
+
+
+@transaction.atomic
+def complete_sales_order(*, tenant: Tenant, order_id: str, actor_user) -> SalesOrder:
+    """
+    Completes order handover/delivery to customer.
+    """
+    try:
+        order = SalesOrder.objects.select_for_update().get(id=order_id, tenant=tenant)
+    except SalesOrder.DoesNotExist as exc:
+        raise ValidationError("Sales order not found in this tenant.") from exc
+
+    if order.status == OrderStatus.CANCELED:
+        raise ValidationError("Cannot complete a canceled sales order.")
+
+    order.status = OrderStatus.COMPLETED
+    order.save(update_fields=["status", "updated_at"])
+
+    AuditEvent.objects.create(
+        actor_user=actor_user,
+        tenant=tenant,
+        event_type="ORDER_COMPLETED",
+        target_model="operations.SalesOrder",
+        target_id=str(order.id),
+        metadata={"order_number": order.order_number},
+    )
+    return order
+
+
+@transaction.atomic
+def cancel_sales_order(*, tenant: Tenant, order_id: str, actor_user, reason: str = "") -> SalesOrder:
+    """
+    Cancels an active sales order.
+    """
+    try:
+        order = SalesOrder.objects.select_for_update().get(id=order_id, tenant=tenant)
+    except SalesOrder.DoesNotExist as exc:
+        raise ValidationError("Sales order not found in this tenant.") from exc
+
+    if order.status == OrderStatus.COMPLETED:
+        raise ValidationError("Cannot cancel an already completed sales order.")
+
+    order.status = OrderStatus.CANCELED
+    order.save(update_fields=["status", "updated_at"])
+
+    # If linked invoice has zero payments, void invoice
+    if hasattr(order, "invoice") and order.invoice.paid_usd == Decimal("0.00"):
+        order.invoice.status = InvoiceStatus.VOIDED
+        order.invoice.save(update_fields=["status", "updated_at"])
+
+    AuditEvent.objects.create(
+        actor_user=actor_user,
+        tenant=tenant,
+        event_type="ORDER_CANCELED",
+        target_model="operations.SalesOrder",
+        target_id=str(order.id),
+        metadata={"order_number": order.order_number, "reason": reason},
+    )
+    return order
+
+
+@transaction.atomic
+def void_customer_invoice(*, tenant: Tenant, invoice_id: str, actor_user, reason: str = "") -> CustomerInvoice:
+    """
+    Voids an unpaid invoice.
+    """
+    try:
+        invoice = CustomerInvoice.objects.select_for_update().get(id=invoice_id, tenant=tenant)
+    except CustomerInvoice.DoesNotExist as exc:
+        raise ValidationError("Invoice not found in this tenant.") from exc
+
+    if invoice.status == InvoiceStatus.VOIDED:
+        raise ValidationError("Invoice is already voided.")
+    if invoice.paid_usd > Decimal("0.00") or invoice.payments.exists():
+        raise ValidationError("Cannot void an invoice with recorded payments.")
+
+    invoice.status = InvoiceStatus.VOIDED
+    invoice.balance_due_usd = Decimal("0.00")
+    invoice.save(update_fields=["status", "balance_due_usd", "updated_at"])
+
+    if hasattr(invoice, "sales_order") and invoice.sales_order.status != OrderStatus.COMPLETED:
+        invoice.sales_order.status = OrderStatus.CANCELED
+        invoice.sales_order.save(update_fields=["status", "updated_at"])
+
+    AuditEvent.objects.create(
+        actor_user=actor_user,
+        tenant=tenant,
+        event_type="INVOICE_VOIDED",
+        target_model="operations.CustomerInvoice",
+        target_id=str(invoice.id),
+        metadata={"invoice_number": invoice.invoice_number, "reason": reason},
+    )
+    return invoice

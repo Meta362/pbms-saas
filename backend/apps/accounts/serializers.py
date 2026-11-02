@@ -1,3 +1,4 @@
+import re
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -125,6 +126,14 @@ class UserProfileUpdateSerializer(serializers.Serializer):
         choices=LanguagePreference.choices, required=False
     )
 
+    def validate_phone(self, value: str) -> str:
+        if not value:
+            return value
+        cleaned = re.sub(r"[\s\-\(\)]", "", value)
+        if not re.match(r"^\+?[0-9]{8,15}$", cleaned):
+            raise serializers.ValidationError("Invalid phone number format.")
+        return cleaned
+
     def validate(self, attrs: dict) -> dict:
         forbidden_keys = {
             "email",
@@ -189,3 +198,30 @@ class StaffInvitationAcceptSerializer(serializers.Serializer):
         except DjangoValidationError as exc:
             raise serializers.ValidationError(list(exc.messages)) from exc
         return value
+
+
+class PasswordChangeSerializer(serializers.Serializer):
+    current_password = serializers.CharField(write_only=True, required=True, trim_whitespace=False)
+    new_password = serializers.CharField(
+        min_length=10,
+        write_only=True,
+        required=True,
+        trim_whitespace=False,
+    )
+    revoke_other_sessions = serializers.BooleanField(default=True, required=False)
+
+    def validate_new_password(self, value: str) -> str:
+        try:
+            validate_password(value)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(list(exc.messages)) from exc
+        return value
+
+
+class UserSessionSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True)
+    ip_address = serializers.CharField(read_only=True)
+    user_agent = serializers.CharField(read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
+    expires_at = serializers.DateTimeField(read_only=True)
+    is_current = serializers.BooleanField(read_only=True)

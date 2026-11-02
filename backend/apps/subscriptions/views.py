@@ -16,6 +16,7 @@ from apps.core.models import AuditEvent, PlatformAnnouncement
 from apps.operations.services import round_usd
 from apps.subscriptions.models import (
     BillingCycle,
+    PaymentProvider,
     PaymentStatus,
     Plan,
     SubscriptionPayment,
@@ -30,6 +31,7 @@ from apps.subscriptions.serializers import (
 )
 from apps.tenants.models import Tenant, TenantMembership, TenantRole, TenantStatus
 from apps.tenants.permissions import (
+    HasActiveTenantMembership,
     HasVerifiedUsbLicense,
     IsPlatformSuperAdmin,
     IsPlatformSuperAdminOrSupportReadOnly,
@@ -648,3 +650,239 @@ class SuperAdminTenantSeedPresetsAPIView(APIView):
         )
         return Response(result, status=status.HTTP_200_OK)
 
+
+
+class TenantSubscriptionCurrentAPIView(APIView):
+    """
+    Returns current subscription plan, status, period end, grace status, and quota usage.
+    """
+    permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles = {TenantRole.TENANT_OWNER, TenantRole.TENANT_MANAGER, TenantRole.FINANCE_STAFF}
+    is_subscription_management_endpoint = True
+
+    def get(self, request: Request) -> Response:
+        tenant = request.tenant
+        subscription = request.tenant_subscription
+        now = timezone.now()
+
+        plan = subscription.plan
+        days_remaining = None
+        is_in_grace = False
+        if subscription.current_period_end:
+            delta = subscription.current_period_end - now
+            days_remaining = max(0, delta.days)
+            grace_cutoff = subscription.current_period_end + timezone.timedelta(days=7)
+            if subscription.current_period_end <= now < grace_cutoff:
+                is_in_grace = True
+
+        # Staff usage
+        active_staff_count = TenantMembership.objects.filter(
+            tenant=tenant,
+            is_active=True,
+        ).count()
+
+        # Monthly order usage
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        from apps.operations.models import SalesOrder, OrderStatus
+        orders_this_month = (
+            SalesOrder.objects.filter(
+                tenant=tenant,
+                created_at__gte=month_start,
+            )
+            .exclude(status=OrderStatus.CANCELED)
+            .count()
+        )
+
+        return Response(
+            {
+                "tenant_id": str(tenant.id),
+                "plan": {
+                    "code": plan.code,
+                    "name": plan.name_en,
+                    "name_km": plan.name_km,
+                    "billing_cycle": subscription.billing_cycle,
+                    "price_usd": str(plan.monthly_price_usd if subscription.billing_cycle == BillingCycle.MONTHLY else plan.annual_price_usd),
+                    "max_staff_users": plan.max_staff_users,
+                    "max_orders_per_month": plan.max_orders_per_month,
+                },
+                "status": subscription.status,
+                "current_period_start": subscription.current_period_start.isoformat() if subscription.current_period_start else None,
+                "current_period_end": subscription.current_period_end.isoformat() if subscription.current_period_end else None,
+                "days_remaining": days_remaining,
+                "is_in_grace_period": is_in_grace,
+                "quotas": {
+                    "staff_seats_used": active_staff_count,
+                    "staff_seats_limit": plan.max_staff_users,
+                    "orders_used_this_month": orders_this_month,
+                    "orders_limit_per_month": plan.max_orders_per_month,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class TenantSubscriptionChangePlanAPIView(APIView):
+    """
+    Self-serve plan upgrade or downgrade with staff seat guardrails.
+    """
+    permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles = {TenantRole.TENANT_OWNER}
+    is_subscription_management_endpoint = True
+
+    @transaction.atomic
+    def post(self, request: Request) -> Response:
+        target_code = request.data.get("plan_code", "").strip().lower()
+        if not target_code:
+            raise ValidationError({"plan_code": "Target plan_code is required."})
+
+        target_plan = Plan.objects.filter(code=target_code).first()
+        if not target_plan:
+            raise ValidationError({"plan_code": f"Plan '{target_code}' not found or inactive."})
+
+        tenant = request.tenant
+        subscription = TenantSubscription.objects.select_for_update().get(tenant=tenant)
+
+        # Guardrail: check active staff count does not exceed target plan limit
+        active_staff_count = TenantMembership.objects.filter(tenant=tenant, is_active=True).count()
+        if active_staff_count > target_plan.max_staff_users:
+            raise ValidationError(
+                {
+                    "detail": (
+                        f"Cannot downgrade to '{target_plan.code}': tenant has {active_staff_count} active staff, "
+                        f"but plan '{target_plan.code}' allows maximum {target_plan.max_staff_users}."
+                    )
+                }
+            )
+
+        old_plan_code = subscription.plan.code
+        subscription.plan = target_plan
+        subscription.save(update_fields=["plan", "updated_at"])
+
+        AuditEvent.objects.create(
+            actor_user=request.user,
+            tenant=tenant,
+            event_type="SUBSCRIPTION_PLAN_CHANGED",
+            target_model="subscriptions.TenantSubscription",
+            target_id=str(subscription.id),
+            metadata={
+                "old_plan": old_plan_code,
+                "new_plan": target_plan.code,
+            },
+        )
+
+        return Response(
+            {
+                "detail": f"Plan successfully changed from '{old_plan_code}' to '{target_plan.code}'.",
+                "plan": {
+                    "code": target_plan.code,
+                    "name": target_plan.name_en,
+                    "max_staff_users": target_plan.max_staff_users,
+                    "max_orders_per_month": target_plan.max_orders_per_month,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class TenantSubscriptionRenewAPIView(APIView):
+    """
+    Submits a subscription renewal payment reference for SuperAdmin reconciliation.
+    """
+    permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles = {TenantRole.TENANT_OWNER, TenantRole.TENANT_MANAGER, TenantRole.FINANCE_STAFF}
+    is_subscription_management_endpoint = True
+
+    @transaction.atomic
+    def post(self, request: Request) -> Response:
+        tenant = request.tenant
+        subscription = request.tenant_subscription
+        plan = subscription.plan
+
+        cycle = request.data.get("billing_cycle", subscription.billing_cycle)
+        if cycle not in (BillingCycle.MONTHLY, BillingCycle.ANNUAL):
+            cycle = BillingCycle.MONTHLY
+
+        amount = plan.monthly_price_usd if cycle == BillingCycle.MONTHLY else plan.annual_price_usd
+        method = request.data.get("payment_method", "KHQR_BAKONG")
+        ref_number = request.data.get("reference_number", "").strip()
+        idempotency_key = request.data.get("idempotency_key", "").strip() or None
+        notes = request.data.get("notes", "").strip()
+
+        if not ref_number:
+            raise ValidationError({"reference_number": "Payment reference number is required."})
+
+        # Idempotency check
+        if idempotency_key:
+            existing = SubscriptionPayment.objects.filter(
+                tenant=tenant,
+                idempotency_key=idempotency_key,
+            ).first()
+            if existing:
+                return Response(
+                    {
+                        "payment_id": str(existing.id),
+                        "status": existing.status,
+                        "detail": "Renewal payment already submitted.",
+                    },
+                    status=status.HTTP_200_OK,
+                )
+
+        payment = SubscriptionPayment.objects.create(
+            tenant=tenant,
+            subscription=subscription,
+            amount_usd=amount,
+            provider=PaymentProvider.MANUAL_TRANSFER,
+            provider_reference=ref_number,
+            idempotency_key=idempotency_key or f"renew-{uuid.uuid4().hex}",
+            notes=notes,
+            status=PaymentStatus.PENDING,
+        )
+
+        AuditEvent.objects.create(
+            actor_user=request.user,
+            tenant=tenant,
+            event_type="SUBSCRIPTION_RENEWAL_REQUESTED",
+            target_model="subscriptions.SubscriptionPayment",
+            target_id=str(payment.id),
+            metadata={
+                "amount_usd": str(amount),
+                "reference_number": ref_number,
+                "billing_cycle": cycle,
+            },
+        )
+
+        return Response(
+            {
+                "payment_id": str(payment.id),
+                "status": payment.status,
+                "amount_usd": str(payment.amount_usd),
+                "detail": "Renewal payment submitted successfully. Platform admin will review and reconcile.",
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class TenantSubscriptionPaymentHistoryAPIView(APIView):
+    """
+    Returns list of subscription payments for the authenticated tenant.
+    """
+    permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles = {TenantRole.TENANT_OWNER, TenantRole.TENANT_MANAGER, TenantRole.FINANCE_STAFF}
+    is_subscription_management_endpoint = True
+
+    def get(self, request: Request) -> Response:
+        payments = SubscriptionPayment.objects.select_related("subscription__plan").filter(tenant=request.tenant).order_by("-created_at")
+        data = [
+            {
+                "id": str(p.id),
+                "plan_code": p.subscription.plan.code,
+                "amount_usd": str(p.amount_usd),
+                "payment_method": p.provider,
+                "reference_number": p.provider_reference,
+                "status": p.status,
+                "created_at": p.created_at.isoformat(),
+                "verified_at": p.verified_at.isoformat() if p.verified_at else None,
+            }
+            for p in payments
+        ]
+        return Response({"payments": data}, status=status.HTTP_200_OK)

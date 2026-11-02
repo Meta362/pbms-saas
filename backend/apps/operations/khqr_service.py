@@ -149,8 +149,9 @@ def get_invoice_khqr_bundle(invoice: Any) -> Dict[str, Any]:
     """
     tenant = invoice.tenant
     rate = tenant.khr_exchange_rate or Decimal("4100.00")
+    from apps.operations.services import round_khr_nearest_100
     usd_due = invoice.balance_due_usd
-    khr_due = (usd_due * rate).quantize(Decimal("1"))
+    khr_due = round_khr_nearest_100(usd_due, rate)
 
     # Determine Bakong account ID (use tenant phone / account or default)
     bakong_id = f"{tenant.slug}@pbms"

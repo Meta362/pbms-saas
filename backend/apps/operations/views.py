@@ -12,10 +12,21 @@ from rest_framework.views import APIView
 from apps.core.models import AuditEvent
 from apps.operations.khqr_service import get_invoice_khqr_bundle
 from apps.operations.imposition_service import calculate_sheet_imposition
-from apps.operations.report_service import generate_gdt_vat_sales_journal, generate_vat_sales_journal_csv
+import uuid
+from apps.operations.preset_service import seed_tenant_master_presets
+from apps.operations.report_service import (
+    generate_gdt_vat_sales_journal,
+    generate_vat_sales_journal_csv,
+    generate_daily_sales_report,
+    generate_inventory_alerts_report,
+    generate_customer_receivables_report,
+    generate_production_queue_report,
+)
 from apps.operations.models import (
     Customer,
     CustomerInvoice,
+    CustomerPayment,
+    InvoiceStatus,
     InventoryTransaction,
     InventoryTransactionType,
     Material,
@@ -24,15 +35,18 @@ from apps.operations.models import (
     ProductionStage,
     Quotation,
     QuotationItem,
+    QuotationStatus,
     SalesOrder,
 )
 from apps.operations.serializers import (
     CustomerInvoiceSerializer,
+    CustomerPaymentSerializer,
     CustomerSerializer,
     InventoryMovementCreateSerializer,
     InventoryTransactionSerializer,
     InvoicePaymentCreateSerializer,
     MaterialSerializer,
+    ProductionJobSerializer,
     ProductionStageUpdateSerializer,
     QuotationCreateSerializer,
     QuotationSerializer,
@@ -40,11 +54,17 @@ from apps.operations.serializers import (
     ImpositionCalculateSerializer,
 )
 from apps.operations.services import (
+    approve_quotation,
     calculate_quotation_totals,
+    cancel_sales_order,
+    complete_sales_order,
     convert_quotation_to_order_and_invoice,
     record_customer_invoice_payment,
     record_inventory_movement,
+    reject_quotation,
+    round_khr_nearest_100,
     round_usd,
+    void_customer_invoice,
 )
 from apps.tenants.models import Tenant, TenantRole
 from apps.tenants.permissions import HasActiveTenantMembership
@@ -450,12 +470,22 @@ class CustomerInvoiceListAPIView(APIView):
 class CustomerInvoicePaymentAPIView(APIView):
     permission_classes = [IsAuthenticated, HasActiveTenantMembership]
     allowed_tenant_roles_by_method = {
+        "GET": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.FINANCE_STAFF,
+        },
         "POST": {
             TenantRole.TENANT_OWNER,
             TenantRole.TENANT_MANAGER,
             TenantRole.FINANCE_STAFF,
         },
     }
+
+    def get(self, request: Request, invoice_id: str) -> Response:
+        invoice = get_object_or_404(CustomerInvoice, id=invoice_id, tenant=request.tenant)
+        payments = invoice.payments.select_related("recorded_by").order_by("-created_at")
+        return Response(CustomerPaymentSerializer(payments, many=True).data)
 
     def post(self, request: Request, invoice_id: str) -> Response:
         serializer = InvoicePaymentCreateSerializer(data=request.data)
@@ -465,14 +495,20 @@ class CustomerInvoicePaymentAPIView(APIView):
         payment = record_customer_invoice_payment(
             tenant=request.tenant,
             invoice_id=invoice_id,
-            amount_usd=data["amount_usd"],
-            payment_method=data["payment_method"],
-            reference_number=data["reference_number"],
+            amount_usd=data.get("amount_usd"),
+            currency=data.get("currency", "USD"),
+            amount_khr=data.get("amount_khr"),
+            payment_method=data.get("payment_method", "KHQR_ABA"),
+            reference_number=data.get("reference_number", ""),
+            idempotency_key=data.get("idempotency_key", ""),
+            notes=data.get("notes", ""),
             actor_user=request.user,
         )
         invoice = payment.invoice
+        resp_data = CustomerInvoiceSerializer(invoice).data
+        resp_data["payment"] = CustomerPaymentSerializer(payment).data
         return Response(
-            CustomerInvoiceSerializer(invoice).data,
+            resp_data,
             status=status.HTTP_200_OK,
         )
 
@@ -569,3 +605,409 @@ class VatSalesJournalReportAPIView(APIView):
             return resp
 
         return Response(journal, status=status.HTTP_200_OK)
+
+
+class CustomerInvoiceKhqrVerifyAPIView(APIView):
+    """
+    Demo-Safe NBC Bakong KHQR verification endpoint.
+    """
+    permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "POST": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.FINANCE_STAFF,
+        },
+    }
+
+    def post(self, request: Request, invoice_id: str) -> Response:
+        invoice = get_object_or_404(CustomerInvoice, id=invoice_id, tenant=request.tenant)
+        if invoice.balance_due_usd <= Decimal("0.00"):
+            raise PermissionDenied("Invoice is already fully paid.")
+
+        bank_ref = request.data.get("bank_reference", "").strip() or f"BAKONG-TXN-{uuid.uuid4().hex[:10].upper()}"
+        currency = request.data.get("currency", "USD").upper().strip()
+        amount_khr = request.data.get("amount_khr")
+        amount_usd = request.data.get("amount_usd")
+
+        if currency == "KHR":
+            if not amount_khr:
+                rate = request.tenant.khr_exchange_rate or Decimal("4100.00")
+                amount_khr = round_khr_nearest_100(invoice.balance_due_usd, rate)
+        else:
+            if not amount_usd:
+                amount_usd = invoice.balance_due_usd
+
+        payment = record_customer_invoice_payment(
+            tenant=request.tenant,
+            invoice_id=invoice_id,
+            amount_usd=Decimal(str(amount_usd)) if amount_usd else None,
+            currency=currency,
+            amount_khr=Decimal(str(amount_khr)) if amount_khr else None,
+            payment_method="KHQR_BAKONG",
+            reference_number=bank_ref,
+            notes="Verified via NBC Bakong KHQR Cashier Verification",
+            actor_user=request.user,
+        )
+
+        return Response(
+            {
+                "verification_status": "VERIFIED",
+                "payment": CustomerPaymentSerializer(payment).data,
+                "invoice": CustomerInvoiceSerializer(payment.invoice).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class TenantPaymentListAPIView(APIView):
+    """
+    Returns list of all payments recorded for the tenant with optional filters.
+    """
+    permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "GET": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.FINANCE_STAFF,
+            TenantRole.SALES_STAFF,
+        },
+    }
+
+    def get(self, request: Request) -> Response:
+        payments = CustomerPayment.objects.select_related("invoice__sales_order__customer", "recorded_by").filter(tenant=request.tenant)
+
+        method = request.query_params.get("payment_method", "").strip()
+        if method:
+            payments = payments.filter(payment_method=method)
+
+        date_str = request.query_params.get("date", "").strip()
+        if date_str:
+            payments = payments.filter(created_at__date=date_str)
+
+        invoice_id = request.query_params.get("invoice_id", "").strip()
+        if invoice_id:
+            payments = payments.filter(invoice_id=invoice_id)
+
+        payments = payments.order_by("-created_at")
+        return Response(CustomerPaymentSerializer(payments, many=True).data)
+
+
+class QuotationDetailAPIView(APIView):
+    permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "GET": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.SALES_STAFF,
+            TenantRole.FINANCE_STAFF,
+        },
+    }
+
+    def get(self, request: Request, quotation_id: str) -> Response:
+        quotation = get_object_or_404(
+            Quotation.objects.prefetch_related("items").select_related("customer"),
+            id=quotation_id,
+            tenant=request.tenant,
+        )
+        return Response(QuotationSerializer(quotation).data)
+
+
+class QuotationApproveAPIView(APIView):
+    permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "POST": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.SALES_STAFF,
+        },
+    }
+
+    def post(self, request: Request, quotation_id: str) -> Response:
+        quote = approve_quotation(
+            tenant=request.tenant,
+            quotation_id=quotation_id,
+            actor_user=request.user,
+        )
+        return Response(QuotationSerializer(quote).data, status=status.HTTP_200_OK)
+
+
+class QuotationRejectAPIView(APIView):
+    permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "POST": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.SALES_STAFF,
+        },
+    }
+
+    def post(self, request: Request, quotation_id: str) -> Response:
+        reason = request.data.get("reason", "").strip()
+        quote = reject_quotation(
+            tenant=request.tenant,
+            quotation_id=quotation_id,
+            actor_user=request.user,
+            reason=reason,
+        )
+        return Response(QuotationSerializer(quote).data, status=status.HTTP_200_OK)
+
+
+class SalesOrderDetailAPIView(APIView):
+    permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "GET": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.SALES_STAFF,
+            TenantRole.FINANCE_STAFF,
+            TenantRole.PRODUCTION_STAFF,
+            TenantRole.DESIGNER,
+        },
+    }
+
+    def get(self, request: Request, order_id: str) -> Response:
+        order = get_object_or_404(
+            SalesOrder.objects.select_related("customer", "production_job", "invoice").prefetch_related("items"),
+            id=order_id,
+            tenant=request.tenant,
+        )
+        return Response(SalesOrderSerializer(order).data)
+
+
+class SalesOrderCompleteAPIView(APIView):
+    permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "POST": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.SALES_STAFF,
+        },
+    }
+
+    def post(self, request: Request, order_id: str) -> Response:
+        order = complete_sales_order(
+            tenant=request.tenant,
+            order_id=order_id,
+            actor_user=request.user,
+        )
+        return Response(SalesOrderSerializer(order).data, status=status.HTTP_200_OK)
+
+
+class SalesOrderCancelAPIView(APIView):
+    permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "POST": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.SALES_STAFF,
+        },
+    }
+
+    def post(self, request: Request, order_id: str) -> Response:
+        reason = request.data.get("reason", "").strip()
+        order = cancel_sales_order(
+            tenant=request.tenant,
+            order_id=order_id,
+            actor_user=request.user,
+            reason=reason,
+        )
+        return Response(SalesOrderSerializer(order).data, status=status.HTTP_200_OK)
+
+
+class ProductionJobListAPIView(APIView):
+    permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "GET": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.PRODUCTION_STAFF,
+            TenantRole.DESIGNER,
+            TenantRole.SALES_STAFF,
+        },
+    }
+
+    def get(self, request: Request) -> Response:
+        stage = request.query_params.get("stage", "").strip()
+        jobs = ProductionJob.objects.select_related("sales_order__customer", "updated_by").filter(tenant=request.tenant)
+        if stage:
+            jobs = jobs.filter(stage=stage)
+        return Response(ProductionJobSerializer(jobs, many=True).data)
+
+
+class ProductionJobDetailAPIView(APIView):
+    permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "GET": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.PRODUCTION_STAFF,
+            TenantRole.DESIGNER,
+            TenantRole.SALES_STAFF,
+        },
+    }
+
+    def get(self, request: Request, job_id: str) -> Response:
+        job = get_object_or_404(
+            ProductionJob.objects.select_related("sales_order__customer", "updated_by"),
+            id=job_id,
+            tenant=request.tenant,
+        )
+        return Response(ProductionJobSerializer(job).data)
+
+
+class CustomerInvoiceDetailAPIView(APIView):
+    permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "GET": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.FINANCE_STAFF,
+            TenantRole.SALES_STAFF,
+        },
+    }
+
+    def get(self, request: Request, invoice_id: str) -> Response:
+        invoice = get_object_or_404(
+            CustomerInvoice.objects.select_related("sales_order__customer"),
+            id=invoice_id,
+            tenant=request.tenant,
+        )
+        return Response(CustomerInvoiceSerializer(invoice).data)
+
+
+class CustomerInvoiceVoidAPIView(APIView):
+    permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "POST": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+        },
+    }
+
+    def post(self, request: Request, invoice_id: str) -> Response:
+        reason = request.data.get("reason", "").strip()
+        invoice = void_customer_invoice(
+            tenant=request.tenant,
+            invoice_id=invoice_id,
+            actor_user=request.user,
+            reason=reason,
+        )
+        return Response(CustomerInvoiceSerializer(invoice).data, status=status.HTTP_200_OK)
+
+
+class MaterialSeedPresetsAPIView(APIView):
+    permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "POST": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+        },
+    }
+
+    def post(self, request: Request) -> Response:
+        pack_type = request.data.get("pack_type", "ALL")
+        result = seed_tenant_master_presets(
+            tenant=request.tenant,
+            actor_user=request.user,
+            pack_type=pack_type,
+        )
+        return Response(result, status=status.HTTP_200_OK)
+
+
+class CustomerDetailAPIView(APIView):
+    permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "GET": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.SALES_STAFF,
+            TenantRole.FINANCE_STAFF,
+        },
+    }
+
+    def get(self, request: Request, customer_id: str) -> Response:
+        customer = get_object_or_404(Customer, id=customer_id, tenant=request.tenant)
+        return Response(CustomerSerializer(customer).data)
+
+
+class MaterialDetailAPIView(APIView):
+    permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "GET": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.FINANCE_STAFF,
+            TenantRole.PRODUCTION_STAFF,
+            TenantRole.DESIGNER,
+            TenantRole.SALES_STAFF,
+        },
+    }
+
+    def get(self, request: Request, material_id: str) -> Response:
+        material = get_object_or_404(Material, id=material_id, tenant=request.tenant)
+        return Response(MaterialSerializer(material).data)
+
+
+class DailySalesReportAPIView(APIView):
+    permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "GET": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.FINANCE_STAFF,
+        },
+    }
+
+    def get(self, request: Request) -> Response:
+        date_str = request.query_params.get("date", "").strip() or None
+        data = generate_daily_sales_report(tenant=request.tenant, date_str=date_str)
+        return Response(data, status=status.HTTP_200_OK)
+
+
+class InventoryAlertsReportAPIView(APIView):
+    permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "GET": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.FINANCE_STAFF,
+            TenantRole.PRODUCTION_STAFF,
+        },
+    }
+
+    def get(self, request: Request) -> Response:
+        data = generate_inventory_alerts_report(tenant=request.tenant)
+        return Response(data, status=status.HTTP_200_OK)
+
+
+class CustomerReceivablesReportAPIView(APIView):
+    permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "GET": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.FINANCE_STAFF,
+        },
+    }
+
+    def get(self, request: Request) -> Response:
+        data = generate_customer_receivables_report(tenant=request.tenant)
+        return Response(data, status=status.HTTP_200_OK)
+
+
+class ProductionQueueReportAPIView(APIView):
+    permission_classes = [IsAuthenticated, HasActiveTenantMembership]
+    allowed_tenant_roles_by_method = {
+        "GET": {
+            TenantRole.TENANT_OWNER,
+            TenantRole.TENANT_MANAGER,
+            TenantRole.PRODUCTION_STAFF,
+            TenantRole.DESIGNER,
+            TenantRole.SALES_STAFF,
+        },
+    }
+
+    def get(self, request: Request) -> Response:
+        data = generate_production_queue_report(tenant=request.tenant)
+        return Response(data, status=status.HTTP_200_OK)
