@@ -1,5 +1,6 @@
 from datetime import timedelta
 from decimal import Decimal
+from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
@@ -807,3 +808,78 @@ class AuthenticationAndTenantIsolationSecurityTests(TestCase):
                 metadata__attempted_email=self.user_b.email,
             ).exists()
         )
+
+    def test_staff_invitation_acceptance_handles_user_creation_conflict(self) -> None:
+        """AUTH-004: Verifies invitation acceptance transaction survives user creation IntegrityError."""
+        self.client.force_authenticate(user=self.user_a)
+        self.client.credentials(HTTP_X_TENANT_ID=str(self.tenant_a.id))
+
+        invite_email = "conflict_user@printshop.local"
+        invite_res = self.client.post(
+            "/api/v1/tenant/invitations/",
+            {"email": invite_email, "role": TenantRole.FINANCE_STAFF},
+            format="json",
+        )
+        self.assertEqual(invite_res.status_code, 201)
+        token = invite_res.json()["invitation_token"]
+
+        # Pre-create the user in the database
+        User.objects.create_user(
+            email=invite_email,
+            password="PreExistingPassword#2026",
+            full_name="Pre-created User",
+        )
+
+        self.client.credentials()  # public accept endpoint
+
+        original_filter = User.objects.filter
+        filter_call_count = 0
+
+        def simulate_initial_user_lookup_miss(*args, **kwargs):
+            nonlocal filter_call_count
+            if kwargs.get("email") == invite_email:
+                filter_call_count += 1
+                if filter_call_count == 1:
+                    # Return empty queryset only on the first check to simulate race condition
+                    return User.objects.none()
+            return original_filter(*args, **kwargs)
+
+        with patch.object(User.objects, "filter", side_effect=simulate_initial_user_lookup_miss):
+            accept_res = self.client.post(
+                "/api/v1/auth/accept-invitation/",
+                {
+                    "token": token,
+                    "password": "FinalPassword#2026",
+                    "full_name": "Conflict Resolved User",
+                    "phone": "012334455",
+                },
+                format="json",
+            )
+
+        self.assertEqual(accept_res.status_code, 200)
+        self.assertIn("tokens", accept_res.json())
+
+        # Verify no duplicate user was created
+        self.assertEqual(User.objects.filter(email=invite_email).count(), 1)
+        conflict_user = User.objects.get(email=invite_email)
+        # Note: In fallback path, password is reset, but full_name is preserved from existing user unless updated
+        self.assertTrue(conflict_user.check_password("FinalPassword#2026"))
+
+        # Verify membership was created with expected role and is active
+        self.assertEqual(
+            TenantMembership.objects.filter(
+                tenant=self.tenant_a,
+                user=conflict_user,
+            ).count(),
+            1,
+        )
+        membership = TenantMembership.objects.get(
+            tenant=self.tenant_a,
+            user=conflict_user,
+        )
+        self.assertEqual(membership.role, TenantRole.FINANCE_STAFF)
+        self.assertTrue(membership.is_active)
+
+        # Verify invitation single-use semantics (marked accepted)
+        invitation = StaffInvitation.objects.get(email=invite_email, tenant=self.tenant_a)
+        self.assertIsNotNone(invitation.accepted_at)

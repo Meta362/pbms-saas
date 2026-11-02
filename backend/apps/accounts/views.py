@@ -753,13 +753,14 @@ class StaffInvitationAcceptAPIView(APIView):
             user.save(update_fields=user_update_fields)
         else:
             try:
-                user = User.objects.create_user(
-                    email=email,
-                    password=password,
-                    full_name=full_name or email.split("@")[0],
-                    phone=phone,
-                    preferred_language=preferred_language,
-                )
+                with transaction.atomic():
+                    user = User.objects.create_user(
+                        email=email,
+                        password=password,
+                        full_name=full_name or email.split("@")[0],
+                        phone=phone,
+                        preferred_language=preferred_language,
+                    )
             except IntegrityError:
                 user = User.objects.get(email=email)
                 user.set_password(password)
